@@ -1,0 +1,194 @@
+.mfa-settings-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: var(--bg-body);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  padding: 20px;
+}
+
+.mfa-card {
+  background: var(--bg-card);
+  padding: 40px 30px;
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.36);
+  width: 420px;
+  max-width: 90vw;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.mfa-card h2 {
+  margin-bottom: 20px;
+  color: var(--text-heading);
+}
+
+.mfa-status {
+  margin-bottom: 20px;
+  font-size: 16px;
+}
+
+.status-enabled {
+  color: var(--text-success);
+  font-weight: 700;
+}
+
+.status-disabled {
+  color: var(--text-danger);
+  font-weight: 700;
+}
+
+.mfa-btn {
+  width: 100%;
+  padding: 12px;
+  margin-top: 12px;
+  background: var(--bg-sidebar);
+  color: var(--text-inverse);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: 0.3s;
+}
+
+.mfa-btn:hover {
+  opacity: 0.9;
+}
+
+.mfa-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mfa-btn-danger {
+  background: var(--bg-badge-danger);
+  color: var(--text-danger);
+}
+
+.mfa-btn-cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-input);
+}
+
+.mfa-setup {
+  margin-top: 20px;
+}
+
+.mfa-setup p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.mfa-qr {
+  width: 200px;
+  height: 200px;
+  margin: 16px auto;
+  display: block;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+}
+
+.mfa-secret {
+  font-size: 12px !important;
+  word-break: break-all;
+}
+
+.mfa-secret code {
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.mfa-setup input,
+.mfa-disable input {
+  width: 100%;
+  padding: 12px 15px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-input);
+  outline: none;
+  transition: 0.2s;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  text-align: center;
+  font-size: 24px;
+  letter-spacing: 8px;
+}
+
+.mfa-setup input:focus,
+.mfa-disable input:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 5px rgba(94, 234, 212, 0.5);
+}
+
+.mfa-disable {
+  margin-top: 20px;
+}
+
+.mfa-disable p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.back-btn {
+  background: none !important;
+  border: none !important;
+  color: var(--accent-primary) !important;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 !important;
+  margin-bottom: 16px;
+  display: block;
+  text-align: left;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.mfa-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mfa-recovery {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg-input, #f8f9fa);
+  border-radius: 8px;
+  border: 1px solid var(--border-input, #ddd);
+}
+
+.recovery-warning {
+  font-size: 13px;
+  color: var(--text-danger, #dc3545);
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.recovery-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.recovery-codes code {
+  display: block;
+  padding: 8px;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-input, #ddd);
+  border-radius: 4px;
+  font-family: "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-align: center;
+  user-select: all;
+}

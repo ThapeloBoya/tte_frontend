@@ -1,0 +1,311 @@
+.track-page {
+  min-height: 100vh;
+  background: var(--bg-body);
+  display: flex;
+  justify-content: center;
+  padding: 40px 20px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.track-container {
+  width: 100%;
+  max-width: 640px;
+}
+
+.track-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.track-logo {
+  width: 100px;
+  margin-bottom: 16px;
+}
+
+.track-header h1 {
+  font-size: 28px;
+  color: var(--text-heading);
+  margin: 0 0 8px;
+}
+
+.track-header p {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.track-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.track-form input {
+  flex: 1;
+  padding: 14px 16px;
+  border: 2px solid var(--border-default);
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.track-form input:focus {
+  border-color: var(--accent-primary);
+}
+
+.track-form button {
+  padding: 14px 28px;
+  background: var(--accent-primary);
+  color: var(--btn-primary-text);
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.track-form button:hover {
+  background: var(--accent-primary-hover);
+}
+
+.track-form button:disabled {
+  background: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.track-error {
+  background: var(--bg-badge-danger);
+  color: var(--text-danger);
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.track-result {
+  background: var(--bg-surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 28px;
+  margin-bottom: 24px;
+}
+
+.track-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.track-ticket {
+  font-size: 18px;
+  color: var(--text-heading);
+}
+
+.track-customer {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.track-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.track-badge.warning { background: var(--bg-badge-warning); color: var(--text-warning); }
+.track-badge.info { background: var(--bg-badge-info); color: var(--text-info); }
+.track-badge.success { background: var(--bg-badge-success); color: var(--text-success); }
+.track-badge.danger { background: var(--bg-badge-danger); color: var(--text-danger); }
+.track-badge.neutral { background: var(--bg-badge-neutral); color: var(--text-secondary); }
+
+.track-route {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-table-header);
+  border-radius: 8px;
+}
+
+.track-location {
+  flex: 1;
+}
+
+.track-location .track-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.track-location a,
+.track-location strong {
+  font-size: 15px;
+  color: var(--text-heading);
+  text-decoration: none;
+}
+
+.track-location a:hover {
+  text-decoration: underline;
+  color: var(--accent-primary);
+}
+
+.track-arrow {
+  font-size: 24px;
+  color: var(--text-muted);
+}
+
+.track-timeline {
+  margin-bottom: 24px;
+}
+
+.track-timeline h3 {
+  font-size: 16px;
+  color: var(--text-heading);
+  margin: 0 0 12px;
+}
+
+.track-milestone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.track-milestone.done {
+  background: var(--bg-badge-success);
+}
+
+.track-milestone.pending {
+  background: var(--bg-table-header);
+  opacity: 0.7;
+}
+
+.track-milestone-icon {
+  font-size: 16px;
+  width: 24px;
+  text-align: center;
+}
+
+.track-milestone-label {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.track-milestone-time {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.track-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.track-details > div {
+  padding: 10px 12px;
+  background: var(--bg-table-header);
+  border-radius: 8px;
+}
+
+.track-details .track-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.track-details strong {
+  font-size: 14px;
+  color: var(--text-heading);
+}
+
+.track-route-btn,
+.track-pod-btn {
+  display: block;
+  text-align: center;
+  padding: 12px;
+  background: var(--accent-primary);
+  color: var(--btn-primary-text);
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  transition: background 0.2s;
+  margin-bottom: 12px;
+}
+
+.track-route-btn:hover,
+.track-pod-btn:hover {
+  background: var(--accent-primary-hover);
+}
+
+.track-approved {
+  text-align: center;
+  color: var(--text-success);
+  font-weight: 600;
+  margin: 16px 0 0;
+  font-size: 14px;
+}
+
+.track-footer {
+  text-align: center;
+}
+
+.track-footer a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.track-footer a:hover {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .track-form {
+    flex-direction: column;
+  }
+
+  .track-route {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .track-arrow {
+    transform: rotate(90deg);
+  }
+
+  .track-details {
+    grid-template-columns: 1fr;
+  }
+
+  .track-result {
+    padding: 20px;
+  }
+}

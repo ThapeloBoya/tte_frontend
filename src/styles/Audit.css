@@ -1,0 +1,184 @@
+.audit-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: var(--text-primary, #172033);
+}
+
+.audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.audit-eyebrow {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary, #6b7280);
+}
+
+.audit-header h1 {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.audit-user {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.audit-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+
+.audit-filters select,
+.audit-filters input {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #172033);
+}
+
+.audit-filters input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.audit-filters button {
+  padding: 0.45rem 1rem;
+  background: var(--bg-secondary, #f3f4f6);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  color: var(--text-primary, #172033);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.audit-filters button:hover {
+  background: var(--border-color, #d1d5db);
+}
+
+.audit-error {
+  background: #fef2f2;
+  color: #dc2626;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.audit-loading,
+.audit-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary, #6b7280);
+  font-size: 0.9rem;
+}
+
+.audit-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.audit-table th {
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-secondary, #f9fafb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.audit-table td {
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border-color, #f3f4f6);
+  vertical-align: top;
+}
+
+.audit-table tr:last-child td {
+  border-bottom: none;
+}
+
+.audit-table tr:hover td {
+  background: var(--bg-secondary, #f9fafb);
+}
+
+.audit-cell-time {
+  white-space: nowrap;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.audit-cell-id {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.audit-cell-details {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.audit-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.audit-pagination button {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #172033);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.audit-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.audit-pagination button:hover:not(:disabled) {
+  background: var(--bg-secondary, #f3f4f6);
+}
