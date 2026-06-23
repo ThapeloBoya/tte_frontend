@@ -215,6 +215,7 @@ const Login = () => {
           <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" required />
           <button type="submit" disabled={loading}>{loading ? "Signing in..." : "Sign In"}</button>
         </form>
+        {/*
         <div className="oauth-buttons">
           <a href={`${BACKEND_URL}/api/auth/google`} className="oauth-btn google-btn">
             Sign in with Google
@@ -223,6 +224,7 @@ const Login = () => {
             Sign in with Microsoft
           </a>
         </div>
+        */}
         <div className="login-links">
           <Link to="/forgot-password">Forgot Password?</Link>
           <Link to="/register">Register</Link>
