@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
-import { useAuth } from "../contexts/AuthContext";
 import Alert from "../components/Alert";
 import "../styles/MfaSettings.css";
 
