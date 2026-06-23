@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import "../styles/Login.css";
 import Alert from "../components/Alert";
 
-const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+//const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const Login = () => {
   const [email, setEmail] = useState("");
