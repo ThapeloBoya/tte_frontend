@@ -6,7 +6,7 @@ import Alert from "../components/Alert";
 import "../styles/MfaSettings.css";
 
 const MfaSettings = () => {
-  const { user, logout } = useAuth();
+  const { authHeaders } = useAuth();
   const navigate = useNavigate();
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [qrCode, setQrCode] = useState(null);

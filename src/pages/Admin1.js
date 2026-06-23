@@ -870,7 +870,7 @@ const Admin1 = () => {
 
   const handleGeneratePOD = async (loadId) => {
     try {
-      const res = await API.post(`/loads/${loadId}/generate-pod`, {}, authHeaders);
+      await API.post(`/loads/${loadId}/generate-pod`, {}, authHeaders);
       setFormMsg({ type: "success", text: "POD generated successfully" });
       fetchData();
     } catch (err) {
