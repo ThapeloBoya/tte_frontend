@@ -17,9 +17,7 @@
     "fuel": "Fuel",
     "maintenance": "Maintenance",
     "map": "Map",
-    "pending": "Pending Review",
-    "approved": "Approved",
-    "all": "All Loads",
+    "users": "Users",
     "profile": "Profile",
     "signout": "Sign Out"
   },

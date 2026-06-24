@@ -46,6 +46,11 @@ const statusTone = {
   "on-duty": "info",
   inactive: "danger",
   "in service": "info",
+  active: "success",
+  superadmin: "danger",
+  admin1: "warning",
+  admin2: "info",
+  driver: "neutral",
 };
 
 const Badge = ({ value }) => (
@@ -76,6 +81,9 @@ const SuperAdmin = () => {
   const [loadPage, setLoadPage] = useState(1);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [multiStatus, setMultiStatus] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [createUserForm, setCreateUserForm] = useState({ name: "", email: "", password: "", role: "driver" });
+  const [showCreateUser, setShowCreateUser] = useState(false);
 
   const toggleStatusFilter = (status) => {
     setMultiStatus((prev) =>
@@ -140,6 +148,16 @@ const SuperAdmin = () => {
     try {
       const res = await API.get("/customers", authHeaders);
       setCustomers(res.data);
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+    }
+  }, [authHeaders, token]);
+
+  const fetchUsers = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await API.get("/users", authHeaders);
+      setUsers(res.data);
     } catch (err) {
       console.error(err.response?.data || err.message);
     }
@@ -568,7 +586,10 @@ const SuperAdmin = () => {
       setLogsSkip(0);
       fetchLogs(false);
     }
-  }, [activePanel, fetchLogs]);
+    if (activePanel === "users") {
+      fetchUsers();
+    }
+  }, [activePanel, fetchLogs, fetchUsers]);
 
   const closeSidebar = () => setSidebarOpen(false);
 
@@ -579,6 +600,7 @@ const SuperAdmin = () => {
     ["fleet", "nav.fleet"],
     ["customers", "nav.customers"],
     ["logs", "Activity Log"],
+    ["users", "Users"],
     ["maintenance", "nav.maintenance"],
     ["fuel", "nav.fuel"],
     ["invoices", "nav.invoices"],
@@ -592,14 +614,14 @@ const SuperAdmin = () => {
         <button className="super-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
           ☰
         </button>
-        <img src="/logo_white.png" alt="Logo" />
+        <img src="/logo_white.png" alt="Moova" />
       </div>
 
       {sidebarOpen && <div className="super-overlay" onClick={closeSidebar} />}
 
       <aside className={`super-sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="super-logo">
-          <img src="/logo_white.png" alt="FleetFlow" />
+          <img src="/logo_white.png" alt="Moova" />
         </div>
 
         <nav>
@@ -1439,6 +1461,116 @@ const SuperAdmin = () => {
                         <td>{rec.fuelType || "diesel"}</td>
                         <td>
                           <button className="super-btn-sm super-btn-danger" onClick={() => handleDeleteFuel(rec._id)}>Delete</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activePanel === "users" && (
+          <section className="super-panel">
+            <div className="super-panel-header">
+              <div>
+                <span className="super-eyebrow">Administration</span>
+                <h2>Users ({users.length})</h2>
+              </div>
+              <div className="super-export-btns">
+                <button onClick={() => setShowCreateUser(!showCreateUser)}>
+                  {showCreateUser ? "Cancel" : "Create User"}
+                </button>
+              </div>
+            </div>
+
+            {showCreateUser && (
+              <div className="super-card" style={{ marginBottom: 24, padding: 24 }}>
+                <h3 style={{ margin: "0 0 16px" }}>New User</h3>
+                <div className="super-form-row" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <input placeholder="Full Name" value={createUserForm.name} onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value })} />
+                  <input placeholder="Email" type="email" value={createUserForm.email} onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })} />
+                  <input placeholder="Password" type="password" value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} />
+                  <select value={createUserForm.role} onChange={(e) => setCreateUserForm({ ...createUserForm, role: e.target.value })}>
+                    <option value="driver">Driver</option>
+                    <option value="admin2">Admin2</option>
+                    <option value="admin1">Admin1</option>
+                    <option value="superadmin">Super Admin</option>
+                  </select>
+                  <button className="super-btn-sm super-btn-primary" onClick={async () => {
+                    try {
+                      await API.post("/users", createUserForm, authHeaders);
+                      setCreateUserForm({ name: "", email: "", password: "", role: "driver" });
+                      setShowCreateUser(false);
+                      fetchUsers();
+                    } catch (err) {
+                      alert(err.response?.data?.message || "Failed to create user");
+                    }
+                  }}>Save</button>
+                </div>
+              </div>
+            )}
+
+            {users.length === 0 ? (
+              <div className="super-empty">No users found.</div>
+            ) : (
+              <div className="super-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr key={u._id}>
+                        <td>{u.name}</td>
+                        <td>{u.email}</td>
+                        <td><Badge value={u.role} /></td>
+                        <td><Badge value={u.isActive !== false ? "active" : "inactive"} /></td>
+                        <td>
+                          <select
+                            value={u.role}
+                            style={{ marginRight: 8 }}
+                            onChange={async (e) => {
+                              try {
+                                await API.put(`/users/${u._id}`, { role: e.target.value }, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert(err.response?.data?.message || "Failed to update role");
+                              }
+                            }}
+                          >
+                            <option value="driver">Driver</option>
+                            <option value="admin2">Admin2</option>
+                            <option value="admin1">Admin1</option>
+                            <option value="superadmin">Super Admin</option>
+                          </select>
+                          {u.isActive !== false ? (
+                            <button className="super-btn-sm super-btn-danger" onClick={async () => {
+                              if (!window.confirm(`Deactivate ${u.name}?`)) return;
+                              try {
+                                await API.delete(`/users/${u._id}`, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert("Failed to deactivate user");
+                              }
+                            }}>Deactivate</button>
+                          ) : (
+                            <button className="super-btn-sm super-btn-primary" onClick={async () => {
+                              try {
+                                await API.put(`/users/${u._id}`, { isActive: true }, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert("Failed to activate user");
+                              }
+                            }}>Activate</button>
+                          )}
                         </td>
                       </tr>
                     ))}

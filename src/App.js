@@ -1,19 +1,15 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { Routes, Route } from "react-router-dom";
 import Login from "./pages/Login";
-import SuperAdmin from "./pages/SuperAdmin";
-import Admin1 from "./pages/Admin1";
-import Admin2 from "./pages/Admin2";
-import Driver from "./pages/Driver";
-import Audit from "./pages/Audit";
+import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import Track from "./pages/Track";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
-import MfaSettings from "./pages/MfaSettings";
-import ChangePassword from "./pages/ChangePassword";
 import OAuthCallback from "./pages/OAuthCallback";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 import SkipLink from "./components/SkipLink";
@@ -22,6 +18,14 @@ import { NotificationProvider, useNotifications } from "./contexts/NotificationC
 import { AnnounceProvider } from "./components/ScreenReaderAnnouncements";
 import Toast from "./components/Toast";
 
+const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
+const Admin1 = lazy(() => import("./pages/Admin1"));
+const Admin2 = lazy(() => import("./pages/Admin2"));
+const Driver = lazy(() => import("./pages/Driver"));
+const Audit = lazy(() => import("./pages/Audit"));
+const MfaSettings = lazy(() => import("./pages/MfaSettings"));
+const ChangePassword = lazy(() => import("./pages/ChangePassword"));
+
 function AppRoutes() {
   const { user } = useAuth();
 
@@ -29,14 +33,17 @@ function AppRoutes() {
     <>
       <SkipLink />
       <div id="main-content" tabIndex={-1}>
+        <Suspense fallback={<div style={{ padding: 40, textAlign: "center" }}>Loading...</div>}>
         <Routes>
-      <Route path="/" element={<Login />} />
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/track" element={<Track />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
       <Route path="/oauth-callback" element={<OAuthCallback />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
 
       {/* Super Admin */}
       <Route
@@ -112,6 +119,7 @@ function AppRoutes() {
       {/* Not Found */}
       <Route path="*" element={<NotFound />} />
     </Routes>
+        </Suspense>
       </div>
     </>
   );
