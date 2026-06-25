@@ -15,6 +15,7 @@ import FormField from "../components/FormField";
 import { CardSkeleton, TableSkeleton } from "../components/LoadingSkeleton";
 import usePolling from "../hooks/usePolling";
 import socket from "../services/socket";
+import ChatDrawer from "../components/ChatDrawer";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 20;
@@ -54,6 +55,7 @@ const Admin2Dashboard = () => {
   const [reviewLoad, setReviewLoad] = useState(null);
   const [approvalNote, setApprovalNote] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [chatOpen, setChatOpen] = useState(false);
   const modalRef = useFocusTrap(Boolean(reviewLoad));
 
   const fetchLoads = useCallback(async () => {
@@ -322,6 +324,9 @@ const Admin2Dashboard = () => {
           <button className="admin2-nav-link" onClick={() => navigate("/change-password")}>
             Change Password
           </button>
+          <button className="admin2-nav-link" onClick={() => setChatOpen(true)}>
+            Chat
+          </button>
           <button className="admin2-logout" onClick={logout}>
             {t("auth.logout")}
           </button>
@@ -499,6 +504,8 @@ const Admin2Dashboard = () => {
           </div>
         </div>
       )}
+
+      <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 };

@@ -28,6 +28,7 @@ import usePolling from "../hooks/usePolling";
 import { CSVLink } from "react-csv";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
+import ChatDrawer from "../components/ChatDrawer";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -223,6 +224,7 @@ const Admin1 = () => {
   const [docForm, setDocForm] = useState({ title: "", type: "other", entityType: "general", entityId: "", fileUrl: "", issueDate: "", expiryDate: "", notes: "" });
   const [docFilter, setDocFilter] = useState({ type: "", entityType: "", status: "", expiring: false });
   const [showCreateDoc, setShowCreateDoc] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const editModalRef = useFocusTrap(modalOpen);
   const resolveModalRef = useFocusTrap(Boolean(resolveLoad));
@@ -1171,6 +1173,9 @@ const Admin1 = () => {
           </button>
           <button className="admin1-nav-link" onClick={() => navigate("/change-password")}>
             Change Password
+          </button>
+          <button className="admin1-nav-link" onClick={() => setChatOpen(true)}>
+            Chat
           </button>
           <button className="admin1-logout" onClick={logout}>
             {t("auth.logout")}
@@ -2148,6 +2153,9 @@ const Admin1 = () => {
                               {inv.status !== "paid" && inv.status !== "cancelled" && (
                                 <button className="admin1-btn-sm" onClick={() => setShowMarkPaid(inv)}>Pay</button>
                               )}
+                              {inv.status === "sent" && inv.paymentUrl && (
+                                <a href={inv.paymentUrl} target="_blank" rel="noopener noreferrer" className="admin1-btn-sm" style={{ background: "#003366", color: "#fff", textDecoration: "none", padding: "4px 8px", borderRadius: 4, fontSize: 12 }}>Pay Now</a>
+                              )}
                               {inv.status !== "paid" && inv.status !== "cancelled" && (
                                 <button className="admin1-btn-sm admin1-btn-danger" onClick={async () => {
                                   const ok = await confirm(`Cancel invoice ${inv.invoiceNumber}?`, "Cancel Invoice", "Cancel Invoice", "Keep", "danger");
@@ -2871,6 +2879,8 @@ const Admin1 = () => {
           </div>
         </div>
       )}
+
+      <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 };

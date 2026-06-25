@@ -18,6 +18,7 @@ import { CardSkeleton } from "../components/LoadingSkeleton";
 import usePolling from "../hooks/usePolling";
 import socket from "../services/socket";
 import SignatureCanvas from "react-signature-canvas";
+import ChatDrawer from "../components/ChatDrawer";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 20;
@@ -75,6 +76,7 @@ const DriverDashboard = () => {
   const [geofenceStatus, setGeofenceStatus] = useState(null);
   const [geofenceLoadId, setGeofenceLoadId] = useState(null);
   const [geofenceLoading, setGeofenceLoading] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Camera state
   const [cameraLoadId, setCameraLoadId] = useState(null);
@@ -581,6 +583,9 @@ const DriverDashboard = () => {
           </button>
           <button className="driver-nav-link" onClick={() => navigate("/change-password")}>
             Change Password
+          </button>
+          <button className="driver-nav-link" onClick={() => setChatOpen(true)}>
+            Chat
           </button>
           <button className="driver-logout" onClick={logout}>
             {t("auth.logout")}
@@ -1090,6 +1095,8 @@ const DriverDashboard = () => {
           </section>
         )}
       </main>
+
+      <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 };

@@ -30,6 +30,7 @@ import { CardSkeleton, TableSkeleton } from "../components/LoadingSkeleton";
 import useConfirm from "../hooks/useConfirm";
 import usePolling from "../hooks/usePolling";
 import socket from "../services/socket";
+import ChatDrawer from "../components/ChatDrawer";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const COLORS = ["#FFBB28", "#00C49F", "#0088FE", "#FF8042"];
@@ -84,6 +85,7 @@ const SuperAdmin = () => {
   const [users, setUsers] = useState([]);
   const [createUserForm, setCreateUserForm] = useState({ name: "", email: "", password: "", role: "driver" });
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const toggleStatusFilter = (status) => {
     setMultiStatus((prev) =>
@@ -662,6 +664,9 @@ const SuperAdmin = () => {
           </button>
           <button className="super-nav-link" onClick={() => navigate("/change-password")}>
             Change Password
+          </button>
+          <button className="super-nav-link" onClick={() => setChatOpen(true)}>
+            Chat
           </button>
           <button className="super-logout" onClick={logout}>
             {t("auth.logout")}
@@ -1295,6 +1300,11 @@ const SuperAdmin = () => {
                             {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "-"}
                           </td>
                           <td>{inv.paidDate ? new Date(inv.paidDate).toLocaleDateString() : "-"}</td>
+                          <td>
+                            {inv.status === "sent" && inv.paymentUrl && (
+                              <a href={inv.paymentUrl} target="_blank" rel="noopener noreferrer" style={{ background:"#003366", color:"#fff", textDecoration:"none", padding:"2px 8px", borderRadius:4, fontSize:11 }}>Pay Now</a>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1594,6 +1604,7 @@ const SuperAdmin = () => {
         )}
       </main>
       <ConfirmDialog />
+      <ChatDrawer isOpen={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 };
