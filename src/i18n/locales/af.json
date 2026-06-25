@@ -19,7 +19,11 @@
     "map": "Kaart",
     "users": "Gebruikers",
     "profile": "Profiel",
-    "signout": "Teken Uit"
+    "signout": "Teken Uit",
+    "pending": "Hangend",
+    "approved": "Goedgekeur",
+    "rejected": "Geweier",
+    "all": "Alle"
   },
   "common": {
     "save": "Stoor",

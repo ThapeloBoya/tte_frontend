@@ -2200,7 +2200,12 @@ const Admin1 = () => {
                       }
                     }}>
                       <option value="">No load (standalone)</option>
-                      {loads.filter(l => l.status === "completed").map((l) => (
+                      {(() => {
+                        const invoicedLoadIds = new Set(
+                          invoices.filter(inv => inv.load && typeof inv.load === "object").map(inv => inv.load._id)
+                        );
+                        return loads.filter(l => l.status === "completed" && !invoicedLoadIds.has(l._id));
+                      })().map((l) => (
                         <option key={l._id} value={l._id}>{l.ticketNumber} — {l.customer?.name || "unknown"}</option>
                       ))}
                     </select>

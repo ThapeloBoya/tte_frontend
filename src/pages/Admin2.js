@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import useFocusTrap from "../hooks/useFocusTrap";
 import API from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -39,6 +40,7 @@ const Badge = ({ value }) => (
 const Admin2Dashboard = () => {
   const { token, user, logout } = useAuth();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const authHeaders = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
 
   const [loads, setLoads] = useState([]);
@@ -195,7 +197,7 @@ const Admin2Dashboard = () => {
   const navItems = [
     ["pending", "nav.pending"],
     ["approved", "nav.approved"],
-    ["rejected", "Rejected"],
+    ["rejected", "nav.rejected"],
     ["issues", "nav.issues"],
     ["all", "nav.all"],
   ];
@@ -317,6 +319,9 @@ const Admin2Dashboard = () => {
         <div className="admin2-sidebar-footer">
           <ThemeToggle />
           <LanguageSwitcher />
+          <button className="admin2-nav-link" onClick={() => navigate("/change-password")}>
+            Change Password
+          </button>
           <button className="admin2-logout" onClick={logout}>
             {t("auth.logout")}
           </button>

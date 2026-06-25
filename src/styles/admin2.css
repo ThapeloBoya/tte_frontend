@@ -74,6 +74,20 @@
   font-size: 12px;
 }
 
+.admin2-nav-link {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-light);
+  font-weight: 600;
+  text-align: left;
+}
+
+.admin2-nav-link:hover {
+  background: var(--bg-sidebar-hover);
+  color: #fff;
+}
+
 .admin2-logout {
   padding: 10px 12px;
   border-radius: 8px;

@@ -589,7 +589,19 @@ const SuperAdmin = () => {
     if (activePanel === "users") {
       fetchUsers();
     }
-  }, [activePanel, fetchLogs, fetchUsers]);
+    if (activePanel === "maintenance") {
+      fetchMaintenance();
+      fetchMaintenanceUpcoming();
+    }
+    if (activePanel === "fuel") {
+      fetchFuel();
+      fetchFuelStats();
+    }
+    if (activePanel === "invoices") {
+      fetchInvoices();
+      fetchInvoiceStats();
+    }
+  }, [activePanel, fetchLogs, fetchUsers, fetchMaintenance, fetchMaintenanceUpcoming, fetchFuel, fetchFuelStats, fetchInvoices, fetchInvoiceStats]);
 
   const closeSidebar = () => setSidebarOpen(false);
 

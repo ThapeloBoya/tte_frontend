@@ -262,17 +262,12 @@ const DriverDashboard = () => {
 
   const updateMilestone = async (load, milestoneKey, nextStatus) => {
     try {
-      await API.patch(
-        `/driver-loads/${load._id}`,
-        {
-          status: nextStatus || load.status,
-          milestones: { [milestoneKey]: new Date().toISOString() },
-        },
-        authHeaders
-      );
+      const body = { milestones: { [milestoneKey]: new Date().toISOString() } };
+      if (nextStatus && nextStatus !== load.status) body.status = nextStatus;
+      await API.patch(`/driver-loads/${load._id}`, body, authHeaders);
       await fetchData();
     } catch (err) {
-      console.error("Milestone update failed:", err.response?.data || err.message);
+      console.error("Milestone update failed:", err.response?.data || err.message, err);
       setFormMsg({ type: "error", text: "Failed to update trip milestone" });
     }
   };
@@ -406,14 +401,15 @@ const DriverDashboard = () => {
     if (!capturedImage || !cameraLoadId) return;
     try {
       const formData = new FormData();
-      formData.append("pod", capturedImage, `pod-camera-${cameraLoadId}.jpg`);
-      await API.post(`/driver-loads/${cameraLoadId}/pod`, formData, {
+      formData.append("photo", capturedImage, `photo-${cameraLoadId}.jpg`);
+      await API.post(`/driver-loads/${cameraLoadId}/photo`, formData, {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
       });
-      setFormMsg({ type: "success", text: "Photo uploaded as POD" });
+      setFormMsg({ type: "success", text: "Delivery photo saved" });
       stopCamera();
       fetchData();
     } catch (err) {
+      console.error("Photo upload failed:", err.response?.data || err.message);
       setFormMsg({ type: "error", text: "Failed to upload photo" });
     }
   };
@@ -434,18 +430,18 @@ const DriverDashboard = () => {
     }
     if (!signatureLoadId) return;
     try {
-      const dataUrl = sigRef.current.getTrimmedCanvas().toDataURL("image/png");
-      const blob = await (await fetch(dataUrl)).blob();
+      const blob = await new Promise(resolve => sigRef.current.getCanvas().toBlob(resolve, "image/png"));
       const formData = new FormData();
-      formData.append("pod", blob, `pod-signature-${signatureLoadId}.png`);
-      await API.post(`/driver-loads/${signatureLoadId}/pod`, formData, {
+      formData.append("signature", blob, `signature-${signatureLoadId}.png`);
+      await API.post(`/driver-loads/${signatureLoadId}/signature`, formData, {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "multipart/form-data" },
       });
-      setFormMsg({ type: "success", text: "Signature saved as POD" });
+      setFormMsg({ type: "success", text: "Signature saved" });
       setShowSignature(false);
       setSignatureLoadId(null);
       fetchData();
     } catch (err) {
+      console.error("Signature save failed:", err.response?.data || err.message);
       setFormMsg({ type: "error", text: "Failed to save signature" });
     }
   };
@@ -898,9 +894,15 @@ const DriverDashboard = () => {
                     <button className="btn driver-action" style={{ background: "#2563eb" }} onClick={() => startCamera(load._id)}>
                       Take Photo
                     </button>
-                    <button className="btn driver-action" style={{ background: "#7c3aed" }} onClick={() => openSignature(load._id)}>
-                      Sign
-                    </button>
+                    {load.signatureUrl ? (
+                      <span className="btn driver-action" style={{ background: "#6b7280", opacity: 0.5, cursor: "not-allowed" }}>
+                        Signed ✓
+                      </span>
+                    ) : (
+                      <button className="btn driver-action" style={{ background: "#7c3aed" }} onClick={() => openSignature(load._id)}>
+                        Sign
+                      </button>
+                    )}
                   </div>
                 ),
               true

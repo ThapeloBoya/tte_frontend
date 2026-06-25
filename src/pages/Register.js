@@ -56,7 +56,7 @@ const Register = () => {
           <button type="submit" disabled={loading}>{loading ? "Registering..." : "Register"}</button>
         </form>
         <p className="login-footer">
-          Already have an account? <Link to="/">Sign in</Link>
+          Already have an account? <Link to="/login">Sign in</Link>
         </p>
       </div>
     </div>

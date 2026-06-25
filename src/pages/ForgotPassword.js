@@ -31,7 +31,7 @@ const ForgotPassword = () => {
         {sent ? (
           <>
             <p className="login-success">If that email exists, a reset link has been sent.</p>
-            <p className="login-footer"><Link to="/">Back to login</Link></p>
+            <p className="login-footer"><Link to="/login">Back to login</Link></p>
           </>
         ) : (
           <>
@@ -40,7 +40,7 @@ const ForgotPassword = () => {
               <input type="email" placeholder="Your email address" value={email} onChange={(e) => setEmail(e.target.value)} required />
               <button type="submit" disabled={loading}>{loading ? "Sending..." : "Send Reset Link"}</button>
             </form>
-            <p className="login-footer"><Link to="/">Back to login</Link></p>
+            <p className="login-footer"><Link to="/login">Back to login</Link></p>
           </>
         )}
       </div>

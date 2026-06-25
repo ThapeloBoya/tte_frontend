@@ -37,7 +37,7 @@ const ResetPassword = () => {
         {done ? (
           <>
             <p className="login-success">Password reset successful! You can now log in.</p>
-            <p className="login-footer"><Link to="/">Go to login</Link></p>
+            <p className="login-footer"><Link to="/login">Go to login</Link></p>
           </>
         ) : (
           <>
@@ -47,7 +47,7 @@ const ResetPassword = () => {
               <input type="password" placeholder="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
               <button type="submit" disabled={loading}>{loading ? "Resetting..." : "Reset Password"}</button>
             </form>
-            <p className="login-footer"><Link to="/">Back to login</Link></p>
+            <p className="login-footer"><Link to="/login">Back to login</Link></p>
           </>
         )}
       </div>

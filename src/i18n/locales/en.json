@@ -19,7 +19,11 @@
     "map": "Map",
     "users": "Users",
     "profile": "Profile",
-    "signout": "Sign Out"
+    "signout": "Sign Out",
+    "pending": "Pending",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "all": "All"
   },
   "common": {
     "save": "Save",
