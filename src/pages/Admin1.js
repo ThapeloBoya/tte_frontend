@@ -2073,7 +2073,7 @@ const Admin1 = () => {
                   <span className="admin1-eyebrow">Billing</span>
                   <h2>Invoices ({invoices.length})</h2>
                 </div>
-                <button onClick={() => { fetchInvoiceStats(); fetchInvoices(); setShowCreateInvoice(true); }}>
+                <button onClick={() => { fetchData(); fetchInvoiceStats(); fetchInvoices(); setShowCreateInvoice(true); }}>
                   + New Invoice
                 </button>
               </div>
@@ -2212,7 +2212,7 @@ const Admin1 = () => {
                         const invoicedLoadIds = new Set(
                           invoices.filter(inv => inv.load && typeof inv.load === "object").map(inv => inv.load._id)
                         );
-                        return loads.filter(l => l.status === "completed" && !invoicedLoadIds.has(l._id));
+                        return loads.filter(l => !invoicedLoadIds.has(l._id));
                       })().map((l) => (
                         <option key={l._id} value={l._id}>{l.ticketNumber} — {l.customer?.name || "unknown"}</option>
                       ))}
