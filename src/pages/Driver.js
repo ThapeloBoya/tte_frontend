@@ -208,8 +208,9 @@ const DriverDashboard = () => {
       inTransit: inTransitLoads.length,
       completed: completedLoads.length,
       podReady: completedLoads.filter((load) => load.podUrl).length,
+      totalPackages: loads.reduce((sum, l) => sum + (Number(l.packages) || 0), 0),
     }),
-    [completedLoads, inTransitLoads, waitingLoads]
+    [completedLoads, inTransitLoads, loads, waitingLoads]
   );
 
   const latestLoad = useMemo(() => inTransitLoads[0] || waitingLoads[0] || completedLoads[0], [
@@ -482,6 +483,7 @@ const DriverDashboard = () => {
                 <th>Contact</th>
                 <th>Truck</th>
                 <th>Status</th>
+                <th>Pkgs</th>
                 {showPod && <th>POD</th>}
                 <th>Actions</th>
               </tr>
@@ -515,6 +517,7 @@ const DriverDashboard = () => {
                   <td>
                     <Badge value={load.status} />
                   </td>
+                  <td style={{ textAlign: "center" }}>{load.packages ?? "-"}</td>
                   {showPod && (
                     <td>{load.podUrl ? <span className="driver-ready">Ready</span> : "Not generated"}</td>
                   )}
@@ -633,6 +636,11 @@ const DriverDashboard = () => {
             <small>{metrics.podReady} POD ready</small>
           </div>
           <div className="driver-kpi-card">
+            <span>Packages</span>
+            <strong>{metrics.totalPackages}</strong>
+            <small>Total across loads</small>
+          </div>
+          <div className="driver-kpi-card">
             <span>Location</span>
             <strong>{locationPermissionDenied ? "Off" : driverLocation ? "Live" : "Wait"}</strong>
             <small>{driverLocation ? "Tracking enabled" : "Awaiting GPS"}</small>
@@ -700,6 +708,10 @@ const DriverDashboard = () => {
                     <div>
                       <span>ETA</span>
                       <strong>{latestLoad.routeDuration ? `${latestLoad.routeDuration} min` : "-"}</strong>
+                    </div>
+                    <div>
+                      <span>Packages</span>
+                      <strong>{latestLoad.packages ?? "-"}</strong>
                     </div>
                     {directionsLink(latestLoad.pickupLocation, latestLoad.deliveryLocation) && (
                       <button className="btn" style={{ marginTop: "0.5rem" }} onClick={() => window.open(directionsLink(latestLoad.pickupLocation, latestLoad.deliveryLocation), "_blank")}>
@@ -822,9 +834,13 @@ const DriverDashboard = () => {
                       </div>
                       <div>
                         <span>ETA</span>
-                        <strong>{load.routeDuration ? `${load.routeDuration} min` : "-"}</strong>
-                      </div>
+                      <strong>{load.routeDuration ? `${load.routeDuration} min` : "-"}</strong>
                     </div>
+                    <div>
+                      <span>Packages</span>
+                      <strong>{load.packages ?? "-"}</strong>
+                    </div>
+                  </div>
 
                     {directionsLink(load.pickupLocation, load.deliveryLocation) && (
                       <button className="btn" style={{ margin: "0.5rem 0" }} onClick={() => window.open(directionsLink(load.pickupLocation, load.deliveryLocation), "_blank")}>
