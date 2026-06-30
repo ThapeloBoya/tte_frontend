@@ -65,6 +65,7 @@ const initialLoadForm = {
   deliveryDate: "",
   deliveryDay: "",
   weight: "",
+  packages: "",
   cargoType: "",
   priority: "normal",
   customerRef: "",
@@ -968,6 +969,7 @@ const Admin1 = () => {
           deliveryLocation: loadForm.deliveryLocation,
           deliveryDay: loadForm.deliveryDay,
           cargoType: loadForm.cargoType,
+          packages: loadForm.packages ? Number(loadForm.packages) : undefined,
           priority: loadForm.priority,
           customerRef: loadForm.customerRef,
           notes: loadForm.notes,
@@ -1368,7 +1370,8 @@ const Admin1 = () => {
               </FormField>
               <FormField label="Delivery Date" name="deliveryDate" type="date" value={loadForm.deliveryDate} onChange={(e) => setLoadForm({ ...loadForm, deliveryDate: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, deliveryDate: true })} error={loadErrors.deliveryDate} touched={loadTouched.deliveryDate} />
               <FormField label="Cargo Type" name="cargoType" value={loadForm.cargoType} onChange={(e) => setLoadForm({ ...loadForm, cargoType: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, cargoType: true })} error={loadErrors.cargoType} touched={loadTouched.cargoType} helpKey="cargo" />
-              <FormField label="Weight" name="weight" type="number" value={loadForm.weight} onChange={(e) => setLoadForm({ ...loadForm, weight: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, weight: true })} error={loadErrors.weight} touched={loadTouched.weight} helpKey="capacity" />
+              <FormField label="Packages" name="packages" type="number" value={loadForm.packages} onChange={(e) => setLoadForm({ ...loadForm, packages: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, packages: true })} error={loadErrors.packages} touched={loadTouched.packages} />
+              <FormField label="Weight (kg)" name="weight" type="number" value={loadForm.weight} onChange={(e) => setLoadForm({ ...loadForm, weight: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, weight: true })} error={loadErrors.weight} touched={loadTouched.weight} helpKey="capacity" />
               <FormField label="Customer Ref" name="customerRef" value={loadForm.customerRef} onChange={(e) => setLoadForm({ ...loadForm, customerRef: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, customerRef: true })} error={loadErrors.customerRef} touched={loadTouched.customerRef} helpKey="customerRef" />
               <button type="submit" className="btn create-load">Create Load</button>
             </form>
