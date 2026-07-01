@@ -12,7 +12,7 @@ import { required, isEmail, isPhone, validateForm } from "../utils/validation";
 import ThemeToggle from "../components/ThemeToggle";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import { useTranslation } from "react-i18next";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import MarkerClusterGroup from "react-leaflet-markercluster";
@@ -28,9 +28,29 @@ import usePolling from "../hooks/usePolling";
 import { CSVLink } from "react-csv";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import ChatDrawer from "../components/ChatDrawer";
+import { TableSkeleton, CardSkeleton } from "../components/LoadingSkeleton";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
+const MapClickHandler = ({ onMapClick, markerPos, onMarkerDrag }) => {
+  useMapEvents({
+    click: (e) => onMapClick(e.latlng.lat, e.latlng.lng),
+  });
+  return markerPos ? (
+    <Marker
+      position={markerPos}
+      draggable={true}
+      eventHandlers={{
+        dragend: (e) => {
+          const pos = e.target.getLatLng();
+          onMarkerDrag(pos.lat, pos.lng);
+        },
+      }}
+    />
+  ) : null;
+};
 
 delete L.Icon.Default.prototype._getIconUrl;
 
@@ -131,9 +151,10 @@ const Badge = ({ value }) => {
 
 const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : "-");
 const PAGE_SIZE = 20;
+const AUDIT_PAGE_SIZE = 25;
 
 const Admin1 = () => {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const authHeaders = useMemo(() => ({ headers: { Authorization: `Bearer ${token}` } }), [token]);
@@ -170,11 +191,22 @@ const Admin1 = () => {
   const [resolveLoad, setResolveLoad] = useState(null);
   const [resolutionNote, setResolutionNote] = useState("");
   const [loadPage, setLoadPage] = useState(1);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
   const [loadDateRange, setLoadDateRange] = useState({ start: "", end: "" });
   const [loadMultiStatus, setLoadMultiStatus] = useState([]);
+  const [detailInvoice, setDetailInvoice] = useState(null);
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkDriver, setBulkDriver] = useState("");
+  const [loadSortBy, setLoadSortBy] = useState("date");
+  const [loadSortDir, setLoadSortDir] = useState("desc");
+  const [loadMonthFilter, setLoadMonthFilter] = useState("");
+  const [detailLoad, setDetailLoad] = useState(null);
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [mapPickerField, setMapPickerField] = useState(null);
+  const [mapPickerPos, setMapPickerPos] = useState(null);
+  const [mapPickerAddress, setMapPickerAddress] = useState("");
 
   // Invoice state
   const [invoices, setInvoices] = useState([]);
@@ -198,6 +230,12 @@ const Admin1 = () => {
   const [showAllRoutes, setShowAllRoutes] = useState(false);
   const [geocodeQuery, setGeocodeQuery] = useState("");
   const [geocodeResult, setGeocodeResult] = useState(null);
+  const [multiStopLocations, setMultiStopLocations] = useState([""]);
+  const [multiStopRoute, setMultiStopRoute] = useState(null);
+  const [multiStopLoading, setMultiStopLoading] = useState(false);
+  const [bulkGeocodeText, setBulkGeocodeText] = useState("");
+  const [bulkGeocodeLoading, setBulkGeocodeLoading] = useState(false);
+  const [bulkGeocodeResults, setBulkGeocodeResults] = useState(null);
 
   // Maintenance state
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
@@ -206,6 +244,8 @@ const Admin1 = () => {
   const [maintenanceFilter, setMaintenanceFilter] = useState({ truck: "", status: "" });
   const [showCreateMaintenance, setShowCreateMaintenance] = useState(false);
   const [showCompleteMaintenance, setShowCompleteMaintenance] = useState(null);
+  const [completeMaintForm, setCompleteMaintForm] = useState({ cost: "", completedMileage: "", vendor: "", notes: "" });
+  const [paymentForm, setPaymentForm] = useState({ paymentMethod: "", paymentReference: "", paidDate: new Date().toISOString().split("T")[0] });
   const [maintenanceForm, setMaintenanceForm] = useState({
     truck: "", serviceType: "oil change", description: "",
     scheduledDate: "", scheduledMileage: "", cost: "", vendor: "", notes: "",
@@ -225,6 +265,7 @@ const Admin1 = () => {
   const [docForm, setDocForm] = useState({ title: "", type: "other", entityType: "general", entityId: "", fileUrl: "", issueDate: "", expiryDate: "", notes: "" });
   const [docFilter, setDocFilter] = useState({ type: "", entityType: "", status: "", expiring: false });
   const [showCreateDoc, setShowCreateDoc] = useState(false);
+  const [editDoc, setEditDoc] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
 
   const editModalRef = useFocusTrap(modalOpen);
@@ -415,6 +456,75 @@ const Admin1 = () => {
     }
   }, [geocodeQuery, authHeaders]);
 
+  const reverseGeocode = useCallback(async (lat, lng) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`);
+      const data = await res.json();
+      return data.display_name || `${lat}, ${lng}`;
+    } catch {
+      return `${lat}, ${lng}`;
+    }
+  }, []);
+
+  const openMapPicker = (field) => {
+    const existing = loadForm[field];
+    setMapPickerField(field);
+    if (existing) {
+      setMapPickerAddress(existing);
+      setMapPickerPos([-26.2041, 28.0473]);
+    } else {
+      setMapPickerAddress("");
+      setMapPickerPos([-26.2041, 28.0473]);
+    }
+    setMapPickerOpen(true);
+  };
+
+  const handleMapPick = async (lat, lng) => {
+    setMapPickerPos([lat, lng]);
+    const addr = await reverseGeocode(lat, lng);
+    setMapPickerAddress(addr);
+  };
+
+  const confirmMapPick = () => {
+    if (mapPickerField && mapPickerAddress) {
+      setLoadForm((prev) => ({ ...prev, [mapPickerField]: mapPickerAddress }));
+    }
+    setMapPickerOpen(false);
+    setMapPickerField(null);
+  };
+
+  const handleTripRoute = useCallback(async () => {
+    const valid = multiStopLocations.filter((l) => l.trim());
+    if (valid.length < 2) return;
+    setMultiStopLoading(true);
+    setMultiStopRoute(null);
+    try {
+      const res = await API.post("/routes/trip", { stops: valid }, authHeaders);
+      setMultiStopRoute(res.data);
+      setRouteCoords(res.data.coordinates);
+      setRouteInfo({ roadDistanceKm: res.data.totalDistance, durationMin: res.data.totalDuration });
+    } catch (err) {
+      setRouteInfo({ error: err.response?.data?.message || "Trip calculation failed" });
+    } finally {
+      setMultiStopLoading(false);
+    }
+  }, [multiStopLocations, authHeaders]);
+
+  async function handleBulkGeocode() {
+    const addresses = bulkGeocodeText.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (addresses.length === 0) return;
+    setBulkGeocodeLoading(true);
+    setBulkGeocodeResults(null);
+    try {
+      const res = await API.post("/routes/batch-geocode", { addresses }, authHeaders);
+      setBulkGeocodeResults(res.data.results || []);
+    } catch (err) {
+      setBulkGeocodeResults([{ query: "Error", error: err.response?.data?.message || "Batch geocode failed" }]);
+    } finally {
+      setBulkGeocodeLoading(false);
+    }
+  }
+
   const fetchData = useCallback(async () => {
     if (!token) return;
 
@@ -601,6 +711,61 @@ const Admin1 = () => {
     };
   }, [drivers, loads, trucks]);
 
+  const statusChartData = useMemo(() => {
+    const counts = {};
+    loads.forEach((l) => { counts[l.status] = (counts[l.status] || 0) + 1; });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [loads]);
+
+  const monthlyChartData = useMemo(() => {
+    const months = {};
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      months[key] = 0;
+    }
+    loads.filter((l) => l.status === "completed" || l.milestones?.completedAt).forEach((l) => {
+      const d = l.milestones?.completedAt || l.updatedAt;
+      if (!d) return;
+      const date = new Date(d);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      if (months[key] !== undefined) months[key]++;
+    });
+    return Object.entries(months).map(([month, completed]) => ({ month, completed }));
+  }, [loads]);
+
+  const PIE_COLORS = ["#6366f1", "#f59e0b", "#3b82f6", "#22c55e", "#10b981", "#ef4444", "#94a3b8"];
+
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditFilter, setAuditFilter] = useState({ entity: "", action: "", userEmail: "" });
+
+  const fetchAuditLogs = useCallback(async (page = 1) => {
+    if (!token) return;
+    setAuditLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (auditFilter.entity) params.set("entity", auditFilter.entity);
+      if (auditFilter.action) params.set("action", auditFilter.action);
+      if (auditFilter.userEmail) params.set("userEmail", auditFilter.userEmail);
+      params.set("skip", (page - 1) * AUDIT_PAGE_SIZE);
+      params.set("limit", AUDIT_PAGE_SIZE);
+      const res = await API.get(`/audit?${params}`, authHeaders);
+      setAuditLogs(res.data.logs || []);
+      setAuditTotal(res.data.total || 0);
+      setAuditPage(page);
+    } catch (err) {
+      console.error("Audit fetch error:", err);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [token, authHeaders, auditFilter]);
+
+  useEffect(() => {
+    if (activePanel === "auditlog") fetchAuditLogs(1);
+  }, [activePanel, fetchAuditLogs]);
+
   const filteredLoads = useMemo(() => {
     const term = search.toLowerCase();
     let items = loads.filter((load) =>
@@ -629,9 +794,32 @@ const Admin1 = () => {
       end.setHours(23, 59, 59, 999);
       items = items.filter((l) => new Date(l.createdAt) <= end);
     }
+    if (loadMonthFilter) {
+      items = items.filter((l) => {
+        const d = new Date(l.createdAt || l.collectionDate || 0);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` === loadMonthFilter;
+      });
+    }
+
+    items.sort((a, b) => {
+      let aVal, bVal;
+      if (loadSortBy === "priority") {
+        const order = { urgent: 0, high: 1, normal: 2 };
+        aVal = order[a.priority] ?? 2;
+        bVal = order[b.priority] ?? 2;
+      } else if (loadSortBy === "status") {
+        const order = ["waiting", "assigned", "in transit", "completed", "approved", "rejected", "canceled"];
+        aVal = order.indexOf(a.status);
+        bVal = order.indexOf(b.status);
+      } else {
+        aVal = new Date(a.createdAt || a.collectionDate || 0).getTime();
+        bVal = new Date(b.createdAt || b.collectionDate || 0).getTime();
+      }
+      return loadSortDir === "asc" ? aVal - bVal : bVal - aVal;
+    });
 
     return items;
-  }, [loads, search, loadMultiStatus, loadDateRange]);
+  }, [loads, search, loadMultiStatus, loadDateRange, loadMonthFilter, loadSortBy, loadSortDir]);
 
   const paginatedLoads = useMemo(() => {
     const start = (loadPage - 1) * PAGE_SIZE;
@@ -655,6 +843,12 @@ const Admin1 = () => {
       fetchDocuments();
     }
   }, [activePanel, fetchFuel, fetchFuelStats, fetchDocuments]);
+
+  useEffect(() => {
+    if (activePanel === "invoices") {
+      fetchInvoices();
+    }
+  }, [invoiceStatusFilter, activePanel, fetchInvoices]);
 
   const filteredDrivers = useMemo(() => {
     const term = search.toLowerCase();
@@ -682,6 +876,11 @@ const Admin1 = () => {
         .some((value) => String(value).toLowerCase().includes(term))
     );
   }, [customers, search]);
+
+  const filteredInvoices = useMemo(() => {
+    if (!invoiceStatusFilter) return invoices;
+    return invoices.filter((inv) => inv.status === invoiceStatusFilter);
+  }, [invoices, invoiceStatusFilter]);
 
   const recentLoads = useMemo(
     () =>
@@ -734,19 +933,20 @@ const Admin1 = () => {
   };
 
   const navItems = [
-    ["overview", "nav.overview"],
-    ["loads", "nav.loads"],
-    ["drivers", "nav.drivers"],
-    ["fleet", "nav.fleet"],
-    ["customers", "nav.customers"],
-    ["invoices", "nav.invoices"],
-    ["maintenance", "nav.maintenance"],
-    ["fuel", "nav.fuel"],
-    ["documents", "nav.documents"],
-    ["issues", "nav.issues"],
-    ["dispatch", "nav.dispatch"],
-    ["map", "nav.map"],
-    ["reports", "nav.reports"],
+    ["overview", "nav.overview", "○"],
+    ["loads", "nav.loads", "⊞"],
+    ["drivers", "nav.drivers", "◇"],
+    ["fleet", "nav.fleet", "▣"],
+    ["customers", "nav.customers", "▤"],
+    ["invoices", "nav.invoices", "⊟"],
+    ["maintenance", "nav.maintenance", "⚙"],
+    ["fuel", "nav.fuel", "⊡"],
+    ["documents", "nav.documents", "☰"],
+    ["issues", "nav.issues", "△"],
+    ["dispatch", "nav.dispatch", "≡"],
+    ["map", "nav.map", "⌗"],
+    ["reports", "nav.reports", "⊟"],
+    ["auditlog", "Activity Log", "◉"],
   ];
 
   const openEditModal = (entityType, data) => {
@@ -859,6 +1059,40 @@ const Admin1 = () => {
       fetchData();
     } catch (err) {
       setFormMsg({ type: "error", text: err.response?.data?.message || "Assign failed" });
+    }
+  };
+
+  const handleDeleteMaintenance = async (id) => {
+    const ok = await confirm("Delete this maintenance record?", "Delete Maintenance", "Delete", "Cancel", "danger");
+    if (!ok) return;
+    try {
+      await API.delete(`/maintenance/${id}`, authHeaders);
+      setFormMsg({ type: "success", text: "Maintenance record deleted" });
+      fetchMaintenance(); fetchMaintenanceUpcoming();
+    } catch (err) {
+      setFormMsg({ type: "error", text: err.response?.data?.message || "Delete failed" });
+    }
+  };
+
+  const handleCancelInvoice = async (id) => {
+    const ok = await confirm("Cancel this invoice?", "Cancel Invoice", "Cancel", "Go Back", "danger");
+    if (!ok) return;
+    try {
+      await API.patch(`/invoices/${id}/cancel`, {}, authHeaders);
+      setFormMsg({ type: "success", text: "Invoice cancelled" });
+      fetchInvoices(); fetchInvoiceStats();
+    } catch (err) {
+      setFormMsg({ type: "error", text: err.response?.data?.message || "Cancel failed" });
+    }
+  };
+
+  const handleMarkOverdue = async (id) => {
+    try {
+      await API.patch(`/invoices/${id}`, { status: "overdue" }, authHeaders);
+      setFormMsg({ type: "success", text: "Invoice marked overdue" });
+      fetchInvoices(); fetchInvoiceStats();
+    } catch (err) {
+      setFormMsg({ type: "error", text: err.response?.data?.message || "Failed to mark overdue" });
     }
   };
 
@@ -1100,13 +1334,29 @@ const Admin1 = () => {
           <Polyline positions={routeCoords} color="#2563eb" weight={4} />
         )}
 
+        {multiStopRoute && multiStopRoute.stops && multiStopRoute.stops.length > 2 && multiStopRoute.stops.map((stop, idx) => (
+          stop.lat && stop.lng ? (
+            <Marker
+              key={idx}
+              position={[stop.lat, stop.lng]}
+              icon={L.divIcon({
+                className: "route-marker-stop",
+                html: `<div style="background:#6366f1;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;border:2px solid #fff">${idx + 1}</div>`,
+                iconSize: [22, 22],
+              })}
+            >
+              <Popup>{stop.location || `Stop ${idx + 1}`}</Popup>
+            </Marker>
+          ) : null
+        ))}
+
         {routeCoords && routeCoords.length > 1 && (
           <>
             <Marker position={routeCoords[0]} icon={L.divIcon({ className: "route-marker-pickup", html: "<div style='background:#10b981;width:12px;height:12px;border-radius:50%;border:2px solid #fff'></div>", iconSize: [12, 12] })}>
-              <Popup>Pickup: {loads.find((l) => l._id === routeLoadId)?.pickupLocation || "Start"}</Popup>
+              <Popup>Pickup: {(multiStopRoute?.stops?.[0]?.location) || loads.find((l) => l._id === routeLoadId)?.pickupLocation || "Start"}</Popup>
             </Marker>
             <Marker position={routeCoords[routeCoords.length - 1]} icon={L.divIcon({ className: "route-marker-delivery", html: "<div style='background:#ef4444;width:12px;height:12px;border-radius:50%;border:2px solid #fff'></div>", iconSize: [12, 12] })}>
-              <Popup>Delivery: {loads.find((l) => l._id === routeLoadId)?.deliveryLocation || "End"}</Popup>
+              <Popup>Delivery: {(multiStopRoute?.stops?.[multiStopRoute.stops.length - 1]?.location) || loads.find((l) => l._id === routeLoadId)?.deliveryLocation || "End"}</Popup>
             </Marker>
           </>
         )}
@@ -1150,7 +1400,7 @@ const Admin1 = () => {
         </div>
 
         <nav>
-          {navItems.map(([id, labelKey]) => (
+          {navItems.map(([id, labelKey, icon]) => (
             <button
               key={id}
               className={activePanel === id ? "active" : ""}
@@ -1159,30 +1409,41 @@ const Admin1 = () => {
                 closeSidebar();
               }}
             >
+              <span className="admin1-nav-icon">{icon}</span>
               {t(labelKey)}
             </button>
           ))}
         </nav>
 
         <div className="admin1-sidebar-footer">
-          <ThemeToggle />
-          <LanguageSwitcher />
-          <button className="admin1-nav-link" onClick={() => navigate("/audit")}>
-            Audit Trail
-          </button>
-          <button className="admin1-nav-link" onClick={() => navigate("/mfa-settings")}>
-            MFA Settings
-          </button>
-          <button className="admin1-nav-link" onClick={() => navigate("/change-password")}>
-            Change Password
-          </button>
-          <button className="admin1-nav-link" onClick={() => setChatOpen(true)}>
-            Chat
-          </button>
-          <button className="admin1-logout" onClick={logout}>
-            {t("auth.logout")}
-          </button>
-          <span>FleetFlow Admin</span>
+          <div className="admin1-sidebar-user">
+            <div className="admin1-sidebar-avatar">
+              {user?.name?.charAt(0)?.toUpperCase() || "A"}
+            </div>
+            <div className="admin1-sidebar-user-info">
+              <div className="admin1-sidebar-user-name">{user?.name || "Admin"}</div>
+              <div className="admin1-sidebar-user-role">{user?.role || "admin1"}</div>
+            </div>
+          </div>
+          <div className="admin1-sidebar-footer-links">
+            <ThemeToggle />
+            <LanguageSwitcher />
+            <button className="admin1-nav-link" onClick={() => navigate("/audit")}>
+              Audit Trail
+            </button>
+            <button className="admin1-nav-link" onClick={() => navigate("/mfa-settings")}>
+              MFA Settings
+            </button>
+            <button className="admin1-nav-link" onClick={() => navigate("/change-password")}>
+              Change Password
+            </button>
+            <button className="admin1-nav-link" onClick={() => setChatOpen(true)}>
+              Chat
+            </button>
+            <button className="admin1-logout" onClick={logout}>
+              {t("auth.logout")}
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -1238,6 +1499,43 @@ const Admin1 = () => {
 
         {activePanel === "overview" && (
           <>
+            <section className="admin1-grid two">
+              <div className="admin1-panel">
+                <div className="admin1-panel-header">
+                  <div>
+                    <span className="admin1-eyebrow">Analytics</span>
+                    <h2>Load Status Distribution</h2>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie data={statusChartData} cx="50%" cy="50%" outerRadius={90} label={({ name, value }) => `${name} (${value})`} dataKey="value">
+                      {statusChartData.map((_, idx) => <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="admin1-panel">
+                <div className="admin1-panel-header">
+                  <div>
+                    <span className="admin1-eyebrow">Trends</span>
+                    <h2>Monthly Completed Loads</h2>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={monthlyChartData}>
+                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="completed" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
             <section className="admin1-grid two">
               <div className="admin1-panel">
                 <div className="admin1-panel-header">
@@ -1312,7 +1610,13 @@ const Admin1 = () => {
                   </tbody>
                 </table>
               </div>
-            </section>
+            )}
+            <Pagination
+              page={auditPage}
+              pages={Math.ceil(auditTotal / AUDIT_PAGE_SIZE)}
+              onPageChange={(p) => fetchAuditLogs(p)}
+            />
+          </section>
           </>
         )}
 
@@ -1324,40 +1628,27 @@ const Admin1 = () => {
                 <h2>Create Load</h2>
               </div>
             </div>
-            <div style={{ padding: "10px 12px", marginBottom: 14, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
-              <span style={{ display: "block", fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", marginBottom: 8 }}>Filter Loads</span>
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-                <label style={{ fontSize: "0.8rem" }}>
-                  Date From:
-                  <input type="date" value={loadDateRange.start} onChange={(e) => setLoadDateRange({ ...loadDateRange, start: e.target.value })} style={{ marginLeft: 4 }} />
-                </label>
-                <label style={{ fontSize: "0.8rem" }}>
-                  Date To:
-                  <input type="date" value={loadDateRange.end} onChange={(e) => setLoadDateRange({ ...loadDateRange, end: e.target.value })} style={{ marginLeft: 4 }} />
-                </label>
-                {["waiting", "assigned", "in transit", "completed", "approved", "rejected", "canceled"].map((s) => (
-                  <label key={s} style={{ fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 4 }}>
-                    <input type="checkbox" checked={loadMultiStatus.includes(s)} onChange={() => setLoadMultiStatus((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])} />
-                    {s}
-                  </label>
-                ))}
-              </div>
-            </div>
             <form className="admin1-form" onSubmit={handleLoadSubmit}>
               <FormField label="Collection Date" name="collectionDate" type="date" value={loadForm.collectionDate} onChange={(e) => setLoadForm({ ...loadForm, collectionDate: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, collectionDate: true })} error={loadErrors.collectionDate} touched={loadTouched.collectionDate} />
               <FormField label="Customer" name="client" type="select" value={loadForm.client} onChange={(e) => setLoadForm({ ...loadForm, client: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, client: true })} error={loadErrors.client} touched={loadTouched.client} required>
                 <option value="">Customer</option>
                 {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name}</option>)}
               </FormField>
-              <FormField label="Pickup Location" name="pickupLocation" value={loadForm.pickupLocation} onChange={(e) => setLoadForm({ ...loadForm, pickupLocation: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, pickupLocation: true })} error={loadErrors.pickupLocation} touched={loadTouched.pickupLocation} required helpKey="address" />
-              <FormField label="Delivery Location" name="deliveryLocation" value={loadForm.deliveryLocation} onChange={(e) => setLoadForm({ ...loadForm, deliveryLocation: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, deliveryLocation: true })} error={loadErrors.deliveryLocation} touched={loadTouched.deliveryLocation} required helpKey="address" />
+              <div style={{ display: "contents" }}>
+                <FormField label="Pickup Location" name="pickupLocation" value={loadForm.pickupLocation} onChange={(e) => setLoadForm({ ...loadForm, pickupLocation: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, pickupLocation: true })} error={loadErrors.pickupLocation} touched={loadTouched.pickupLocation} required helpKey="address" />
+                <button type="button" className="admin1-action" style={{ alignSelf: "end", marginBottom: 10 }} onClick={() => openMapPicker("pickupLocation")}>Map</button>
+              </div>
+              <div style={{ display: "contents" }}>
+                <FormField label="Delivery Location" name="deliveryLocation" value={loadForm.deliveryLocation} onChange={(e) => setLoadForm({ ...loadForm, deliveryLocation: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, deliveryLocation: true })} error={loadErrors.deliveryLocation} touched={loadTouched.deliveryLocation} required helpKey="address" />
+                <button type="button" className="admin1-action" style={{ alignSelf: "end", marginBottom: 10 }} onClick={() => openMapPicker("deliveryLocation")}>Map</button>
+              </div>
               <FormField label="Driver" name="driver" type="select" value={loadForm.driver} onChange={(e) => setLoadForm({ ...loadForm, driver: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, driver: true })} error={loadErrors.driver} touched={loadTouched.driver}>
                 <option value="">Assign driver</option>
                 {drivers.map((driver) => <option key={driver._id} value={driver._id}>{driver.name} ({driver.email})</option>)}
               </FormField>
               <FormField label="Truck" name="truck" type="select" value={loadForm.truck} onChange={(e) => setLoadForm({ ...loadForm, truck: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, truck: true })} error={loadErrors.truck} touched={loadTouched.truck}>
                 <option value="">Assign truck</option>
-                {trucks.map((truck) => <option key={truck._id} value={truck._id}>{truck.registrationNumber}</option>)}
+                {trucks.filter((t) => t.status === "available").map((truck) => <option key={truck._id} value={truck._id}>{truck.registrationNumber}</option>)}
               </FormField>
               <FormField label="Status" name="status" type="select" value={loadForm.status} onChange={(e) => setLoadForm({ ...loadForm, status: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, status: true })} error={loadErrors.status} touched={loadTouched.status}>
                 <option value="waiting">Waiting</option>
@@ -1373,10 +1664,16 @@ const Admin1 = () => {
               <FormField label="Packages" name="packages" type="number" value={loadForm.packages} onChange={(e) => setLoadForm({ ...loadForm, packages: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, packages: true })} error={loadErrors.packages} touched={loadTouched.packages} />
               <FormField label="Weight (kg)" name="weight" type="number" value={loadForm.weight} onChange={(e) => setLoadForm({ ...loadForm, weight: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, weight: true })} error={loadErrors.weight} touched={loadTouched.weight} helpKey="capacity" />
               <FormField label="Customer Ref" name="customerRef" value={loadForm.customerRef} onChange={(e) => setLoadForm({ ...loadForm, customerRef: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, customerRef: true })} error={loadErrors.customerRef} touched={loadTouched.customerRef} helpKey="customerRef" />
+              <FormField label="Priority" name="priority" type="select" value={loadForm.priority} onChange={(e) => setLoadForm({ ...loadForm, priority: e.target.value })} onBlur={() => setLoadTouched({ ...loadTouched, priority: true })} error={loadErrors.priority} touched={loadTouched.priority}>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </FormField>
+              <FormField label="Notes" name="notes" value={loadForm.notes} onChange={(e) => setLoadForm({ ...loadForm, notes: sanitizeInput(e.target.value) })} onBlur={() => setLoadTouched({ ...loadTouched, notes: true })} error={loadErrors.notes} touched={loadTouched.notes} />
               <button type="submit" className="btn create-load">Create Load</button>
             </form>
 
-            <div className="admin1-bulk-toolbar" style={{ display: selectedIds.length > 0 ? "flex" : "none", alignItems: "center", gap: "0.5rem", padding: "0.5rem 0", flexWrap: "wrap" }}>
+            <div className="admin1-bulk-toolbar" style={{ display: selectedIds.length > 0 ? "flex" : "none" }}>
               <span>{selectedIds.length} selected</span>
               <select value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)} aria-label="Bulk status">
                 <option value="">Set status...</option>
@@ -1399,13 +1696,50 @@ const Admin1 = () => {
               <button className="admin1-action danger" onClick={handleBulkDelete}>Delete</button>
             </div>
 
-            <div style={{ display: "flex", gap: "0.5rem", margin: "0.5rem 0", flexWrap: "wrap" }}>
+            <div className="admin1-export-bar">
               <CSVLink data={filteredLoads.map((l) => ({ Ticket: l.ticketNumber, Customer: l.customer?.name, Pickup: l.pickupLocation, Delivery: l.deliveryLocation, Driver: l.driver?.name, Truck: l.truck?.registrationNumber, Status: l.status, "Route km": l.routeDistance, ETA: l.routeDuration, "Customer Ref": l.customerRef }))} filename="loads.csv">
                 <button className="admin1-action">Export CSV</button>
               </CSVLink>
               <button className="admin1-action" onClick={() => exportToExcel(filteredLoads.map((l) => ({ Ticket: l.ticketNumber, Customer: l.customer?.name, Pickup: l.pickupLocation, Delivery: l.deliveryLocation, Driver: l.driver?.name, Truck: l.truck?.registrationNumber, Status: l.status, "Route km": l.routeDistance, ETA: l.routeDuration, "Customer Ref": l.customerRef })), "loads", "Loads")}>
                 Export Excel
               </button>
+            </div>
+
+            <div className="admin1-filter-bar">
+              <span className="admin1-filter-bar-label">Filter Loads</span>
+              <div className="admin1-filter-bar-row">
+                <label className="admin1-filter-chip">
+                  Date From:
+                  <input type="date" value={loadDateRange.start} onChange={(e) => setLoadDateRange({ ...loadDateRange, start: e.target.value })} />
+                </label>
+                <label className="admin1-filter-chip">
+                  Date To:
+                  <input type="date" value={loadDateRange.end} onChange={(e) => setLoadDateRange({ ...loadDateRange, end: e.target.value })} />
+                </label>
+                {["waiting", "assigned", "in transit", "completed", "approved", "rejected", "canceled"].map((s) => (
+                  <label key={s} className="admin1-filter-chip">
+                    <input type="checkbox" checked={loadMultiStatus.includes(s)} onChange={() => setLoadMultiStatus((prev) => prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])} />
+                    {s}
+                  </label>
+                ))}
+              </div>
+              <div className="admin1-filter-bar-row" style={{ marginTop: 8 }}>
+                <label className="admin1-filter-chip">
+                  Month:
+                  <input type="month" value={loadMonthFilter} onChange={(e) => setLoadMonthFilter(e.target.value)} />
+                </label>
+                <label className="admin1-filter-chip">
+                  Sort:
+                  <select value={loadSortBy} onChange={(e) => setLoadSortBy(e.target.value)}>
+                    <option value="date">Date</option>
+                    <option value="priority">Priority</option>
+                    <option value="status">Status</option>
+                  </select>
+                </label>
+                <button className="admin1-btn-sm" onClick={() => setLoadSortDir((d) => d === "asc" ? "desc" : "asc")}>
+                  {loadSortDir === "asc" ? "↑ Asc" : "↓ Desc"}
+                </button>
+              </div>
             </div>
 
             <div className="admin1-table-wrap">
@@ -1435,19 +1769,33 @@ const Admin1 = () => {
                       <td>{load.customer?.name || "Unassigned"}</td>
                       <td>{load.pickupLocation}</td>
                       <td>{load.deliveryLocation}</td>
-                      <td style={{ fontSize: "0.8rem" }}>{load.routeDistance ? `${load.routeDistance} km` : "-"}</td>
-                      <td style={{ fontSize: "0.8rem" }}>{load.routeDuration ? `${load.routeDuration} min` : "-"}</td>
+                        <td className="admin1-text-small">{load.routeDistance ? `${load.routeDistance} km` : "-"}</td>
+                        <td className="admin1-text-small">{load.routeDuration ? `${load.routeDuration} min` : "-"}</td>
                       <td>{load.driver?.name || "Unassigned"}</td>
                       <td>{load.truck?.registrationNumber || "No truck"}</td>
                       <td><Badge value={load.status} /></td>
                       <td>
+                        <button className="admin1-action" onClick={() => setDetailLoad(load)}>View</button>
                         <button className="admin1-action" onClick={() => openEditModal("Load", load)}>Edit</button>
                         <button className="admin1-action danger" onClick={() => handleDelete("Load", load._id)}>Delete</button>
+                        {load.status === "completed" && !invoices.some((inv) => inv.load?._id === load._id || inv.load === load._id) && (
+                          <button className="admin1-action" onClick={() => {
+                            setInvoiceForm({
+                              customer: load.customer?._id || "",
+                              load: load._id,
+                              driver: load.driver?._id || "",
+                              dueDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+                              taxPercent: 0, discount: 0, notes: "",
+                              lineItems: [{ description: `Transport: ${load.pickupLocation || ""} → ${load.deliveryLocation || ""}`, quantity: 1, rate: 500, amount: 500 }],
+                            });
+                            setShowCreateInvoice(true);
+                          }}>Invoice</button>
+                        )}
                         {!load.podUrl && load.status === "completed" && (
                           <button className="admin1-action" onClick={() => handleGeneratePOD(load._id)}>Gen POD</button>
                         )}
                         {load.podUrl && (
-                          <a href={`${BACKEND_URL}${load.podUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action" style={{ textDecoration: "none", display: "inline-block" }}>POD</a>
+                          <a href={`${BACKEND_URL}${load.podUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action">POD</a>
                         )}
                         {load.ticketNumber && (
                           <button className="admin1-action" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/track/${load.ticketNumber}`); setFormMsg({ type: "success", text: "Tracking link copied!" }); }}>
@@ -1475,6 +1823,7 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">People</span>
                 <h2>Drivers</h2>
               </div>
+              <button className="admin1-action" onClick={() => exportToExcel(filteredDrivers.map((d) => ({ Name: d.name, Email: d.email, Phone: d.phone, License: d.licenseNumber, Status: d.status })), "drivers", "Drivers")}>Export Excel</button>
             </div>
             <select className="admin1-select" value={driverForm._id} onChange={handleDriverSelect}>
               <option value="">Register new driver</option>
@@ -1533,6 +1882,7 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">Assets</span>
                 <h2>Fleet</h2>
               </div>
+              <button className="admin1-action" onClick={() => exportToExcel(filteredTrucks.map((t) => ({ Reg: t.registrationNumber, Model: t.model, Make: t.make, Capacity: t.capacity, Status: t.status, Mileage: t.mileage, "Fuel Type": t.fuelType })), "fleet", "Fleet")}>Export Excel</button>
             </div>
             <form className="admin1-form" onSubmit={handleTruckSubmit}>
               <FormField label="Registration Number" name="registrationNumber" value={truckForm.registrationNumber} onChange={(e) => setTruckForm({ ...truckForm, registrationNumber: sanitizeInput(e.target.value) })} onBlur={() => setTruckTouched({ ...truckTouched, registrationNumber: true })} error={truckErrors.registrationNumber} touched={truckTouched.registrationNumber} required helpKey="registration" />
@@ -1595,6 +1945,7 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">Accounts</span>
                 <h2>Customers</h2>
               </div>
+              <button className="admin1-action" onClick={() => exportToExcel(filteredCustomers.map((c) => ({ Name: c.name, Email: c.email, Phone: c.phone, Address: c.address })), "customers", "Customers")}>Export Excel</button>
             </div>
             <form className="admin1-form" onSubmit={handleCustomerSubmit}>
               <FormField label="Name" name="name" value={customerForm.name} onChange={(e) => setCustomerForm({ ...customerForm, name: sanitizeInput(e.target.value) })} onBlur={() => setCustomerTouched({ ...customerTouched, name: true })} error={customerErrors.name} touched={customerTouched.name} required />
@@ -1665,7 +2016,7 @@ const Admin1 = () => {
                         <td>{load.customer?.name || "-"}</td>
                         <td>{load.driver?.name || load.driver?.email || "-"}</td>
                         <td><Badge value={load.driverIssue.type} /></td>
-                        <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <td className="admin1-text-truncate">
                           {load.driverIssue.description}
                         </td>
                         <td>{load.truck?.registrationNumber || "-"}</td>
@@ -1715,14 +2066,14 @@ const Admin1 = () => {
                       <tr key={load._id}>
                         <td>{load.ticketNumber || "-"}</td>
                         <td>{load.customer?.name || "Unassigned"}</td>
-                        <td style={{ fontSize: "0.8rem" }}>
+                        <td className="admin1-text-small">
                           {load.pickupLocation} → {load.deliveryLocation}
                         </td>
                         <td>{load.driver?.name || "Unassigned"}</td>
                         <td>{load.truck?.registrationNumber || "-"}</td>
                         <td><Badge value={load.status} /></td>
                         <td>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                          <div className="admin1-action-group">
                             {load.status === "waiting" && (
                               <button className="admin1-action" onClick={() => handleQuickStatus(load._id, "assigned")}>
                                 Assign
@@ -1741,7 +2092,7 @@ const Admin1 = () => {
                             <select
                               value=""
                               onChange={(e) => { if (e.target.value) handleQuickAssign(load._id, e.target.value); e.target.value = ""; }}
-                              style={{ fontSize: "0.75rem", maxWidth: 110 }}
+                              className="admin1-driver-select"
                               aria-label="Assign driver"
                             >
                               <option value="">Driver...</option>
@@ -1753,7 +2104,7 @@ const Admin1 = () => {
                               View on Map
                             </button>
                             {load.podUrl && (
-                              <a href={`${BACKEND_URL}${load.podUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action" style={{ textDecoration: "none" }}>POD</a>
+                              <a href={`${BACKEND_URL}${load.podUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action">POD</a>
                             )}
                             {load.ticketNumber && (
                               <button className="admin1-action" onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/track/${load.ticketNumber}`); setFormMsg({ type: "success", text: "Tracking link copied!" }); }}>
@@ -1778,31 +2129,31 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">Tracking</span>
                 <h2>Live Driver Map &amp; Route Planning</h2>
               </div>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
+              <div className="admin1-route-btn-row">
                 <button onClick={() => setShowAllRoutes(!showAllRoutes)}>
                   {showAllRoutes ? "Hide Routes" : "Show All Routes"}
                 </button>
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-              <div style={{ flex: 1, minWidth: 300 }}>
+            <div className="admin1-map-layout">
+              <div className="admin1-map-main">
                 {renderMap()}
               </div>
 
-              <div style={{ width: 320, background: "#fff", borderRadius: 8, padding: "1rem", border: "1px solid #e2e8f0" }}>
-                <h3 style={{ margin: "0 0 0.75rem", fontSize: "1rem" }}>Route Planning</h3>
+              <div className="admin1-route-sidebar">
+                <h3>Route Planning</h3>
 
-                <label style={{ fontWeight: 600, fontSize: "0.875rem" }}>Select Load</label>
-                <select value={routeLoadId} onChange={(e) => { setRouteLoadId(e.target.value); setRouteCoords(null); setRouteInfo(null); }} style={{ width: "100%", padding: "0.4rem", marginBottom: "0.75rem" }}>
+                <label>Select Load</label>
+                <select value={routeLoadId} onChange={(e) => { setRouteLoadId(e.target.value); setRouteCoords(null); setRouteInfo(null); }}>
                   <option value="">Choose a load...</option>
                   {loads.filter((l) => l.pickupLocation && l.deliveryLocation).map((l) => (
                     <option key={l._id} value={l._id}>{l.ticketNumber} — {l.pickupLocation} → {l.deliveryLocation}</option>
                   ))}
                 </select>
 
-                <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                  <button onClick={handleCalculateRoute} disabled={!routeLoadId || routeLoading} style={{ flex: 1 }}>
+                <div className="admin1-route-btn-row">
+                  <button onClick={handleCalculateRoute} disabled={!routeLoadId || routeLoading}>
                     {routeLoading ? "Calculating..." : "Calculate Route"}
                   </button>
                   <button onClick={() => fetchLoadRoute(routeLoadId)} disabled={!routeLoadId || routeLoading} title="Refresh saved route">
@@ -1811,37 +2162,92 @@ const Admin1 = () => {
                 </div>
 
                 {routeInfo && (
-                  <div style={{ background: "#f8fafc", borderRadius: 6, padding: "0.75rem", marginBottom: "0.75rem", fontSize: "0.875rem" }}>
+                  <div className="admin1-route-info">
                     {routeInfo.error ? (
-                      <p style={{ color: "#e74c3c" }}>{routeInfo.error}</p>
+                      <p className="admin1-text-danger">{routeInfo.error}</p>
                     ) : routeInfo.needsGeocode ? (
-                      <p style={{ color: "#d97706" }}>Addresses need geocoding. Click "Calculate Route" to resolve.</p>
+                      <p className="admin1-text-warning">Addresses need geocoding. Click "Calculate Route" to resolve.</p>
                     ) : (
                       <>
-                        {routeInfo.roadDistanceKm && (
-                          <p style={{ margin: "0 0 0.25rem" }}><strong>Road:</strong> {routeInfo.roadDistanceKm} km</p>
-                        )}
-                        <p style={{ margin: "0 0 0.25rem" }}><strong>Straight:</strong> {routeInfo.straightLineKm || routeInfo.distance} km</p>
-                        <p style={{ margin: 0 }}><strong>ETA:</strong> {routeInfo.durationMin || routeInfo.duration} min @ 60 km/h</p>
+                        {routeInfo.roadDistanceKm && <p><strong>Road:</strong> {routeInfo.roadDistanceKm} km</p>}
+                        <p><strong>Straight:</strong> {routeInfo.straightLineKm || routeInfo.distance} km</p>
+                        <p><strong>ETA:</strong> {routeInfo.durationMin || routeInfo.duration} min @ 60 km/h</p>
                       </>
                     )}
                   </div>
                 )}
 
-                <hr style={{ border: "none", borderTop: "1px solid #e2e8f0", margin: "0.75rem 0" }} />
+                <hr className="admin1-route-divider" />
 
-                <h3 style={{ margin: "0 0 0.5rem", fontSize: "0.875rem" }}>Geocode Address</h3>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <input value={geocodeQuery} onChange={(e) => setGeocodeQuery(e.target.value)} placeholder="e.g. Johannesburg, SA" style={{ flex: 1 }} />
+                <h4>Geocode Address</h4>
+                <div className="admin1-route-btn-row">
+                  <input value={geocodeQuery} onChange={(e) => setGeocodeQuery(e.target.value)} placeholder="e.g. Johannesburg, SA" />
                   <button onClick={handleGeocode}>Search</button>
                 </div>
                 {geocodeResult && (
-                  <div style={{ fontSize: "0.8rem", marginTop: "0.5rem", padding: "0.5rem", borderRadius: 4, background: geocodeResult.error ? "#fef2f2" : "#f0fdf4" }}>
+                  <div className={`admin1-geocode-result ${geocodeResult.error ? "error" : "success"}`}>
                     {geocodeResult.error ? (
-                      <span style={{ color: "#b91c1c" }}>{geocodeResult.error}</span>
+                      <span>{geocodeResult.error}</span>
                     ) : (
                       <><strong>{geocodeResult.displayName}</strong><br />Lat: {geocodeResult.lat}, Lng: {geocodeResult.lng}</>
                     )}
+                  </div>
+                )}
+
+                <hr className="admin1-route-divider" />
+                <h4>Multi-Stop Trip</h4>
+                {multiStopLocations.map((loc, idx) => (
+                  <div key={idx} className="admin1-route-btn-row" style={{ marginBottom: 6 }}>
+                    <input
+                      value={loc} onChange={(e) => {
+                        const next = [...multiStopLocations];
+                        next[idx] = e.target.value;
+                        setMultiStopLocations(next);
+                      }}
+                      placeholder={`Stop ${idx + 1}`}
+                      style={{ flex: 1 }}
+                    />
+                    {multiStopLocations.length > 2 && (
+                      <button onClick={() => setMultiStopLocations(multiStopLocations.filter((_, i) => i !== idx))} style={{ flex: "none", padding: "4px 8px", fontSize: 12 }}>×</button>
+                    )}
+                  </div>
+                ))}
+                <div className="admin1-route-btn-row">
+                  <button onClick={() => setMultiStopLocations([...multiStopLocations, ""])} style={{ flex: "none", fontSize: 12, padding: "4px 10px" }}>+ Add Stop</button>
+                  <button onClick={handleTripRoute} disabled={multiStopLoading || multiStopLocations.filter((l) => l.trim()).length < 2}>
+                    {multiStopLoading ? "Calculating..." : "Calculate Trip"}
+                  </button>
+                </div>
+                {multiStopRoute && (
+                  <div className="admin1-route-info">
+                    <p><strong>Total:</strong> {multiStopRoute.totalDistance || 0} km</p>
+                    <p><strong>Duration:</strong> {multiStopRoute.totalDuration || 0} min</p>
+                    <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{multiStopLocations.filter((l) => l.trim()).length} stops routed</p>
+                  </div>
+                )}
+
+                <hr className="admin1-route-divider" />
+                <h4>Bulk Geocode</h4>
+                <p style={{ margin: "0 0 6px", fontSize: 11, color: "#94a3b8" }}>One address per line</p>
+                <textarea
+                  rows={4}
+                  value={bulkGeocodeText}
+                  onChange={(e) => setBulkGeocodeText(e.target.value)}
+                  placeholder={`Johannesburg, South Africa\nCape Town, South Africa\nDurban, South Africa`}
+                  style={{ width: "100%", minHeight: 80, padding: "7px 10px", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 12, boxSizing: "border-box", resize: "vertical" }}
+                />
+                <div className="admin1-route-btn-row">
+                  <button onClick={handleBulkGeocode} disabled={bulkGeocodeLoading || !bulkGeocodeText.trim()}>
+                    {bulkGeocodeLoading ? "Geocoding..." : "Batch Geocode"}
+                  </button>
+                </div>
+                {bulkGeocodeResults && bulkGeocodeResults.length > 0 && (
+                  <div className="admin1-route-info" style={{ maxHeight: 200, overflowY: "auto" }}>
+                    {bulkGeocodeResults.map((r, i) => (
+                      <p key={i} style={{ fontSize: 11, margin: "2px 0", color: r.error ? "#dc2626" : "#16a34a" }}>
+                        <strong>{i + 1}.</strong> {r.query}: {r.error || `${r.lat?.toFixed(4)}, ${r.lng?.toFixed(4)}`}
+                      </p>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1857,20 +2263,23 @@ const Admin1 = () => {
                   <span className="admin1-eyebrow">Fleet Care</span>
                   <h2>Maintenance ({maintenanceRecords.length})</h2>
                 </div>
-                <button onClick={() => { fetchMaintenanceUpcoming(); fetchMaintenance(); setShowCreateMaintenance(true); }}>
-                  + Schedule Service
-                </button>
+                <div className="admin1-action-group">
+                  <button className="admin1-action" onClick={() => exportToExcel(maintenanceRecords.map((r) => ({ Truck: r.truck?.registrationNumber, Service: r.serviceType, Scheduled: r.scheduledDate ? new Date(r.scheduledDate).toLocaleDateString() : "", Cost: r.cost, Status: r.status, Vendor: r.vendor })), "maintenance", "Maintenance")}>Export</button>
+                  <button onClick={() => { fetchMaintenanceUpcoming(); fetchMaintenance(); setShowCreateMaintenance(true); }}>
+                    + Schedule Service
+                  </button>
+                </div>
               </div>
 
               {maintenanceUpcoming && (
-                <div className="admin1-kpis" style={{ marginBottom: "1rem" }}>
+                <div className="admin1-kpis">
                   <div className="admin1-kpi-card">
                     <span>Overdue</span>
-                    <strong style={{ color: "#e74c3c" }}>{maintenanceUpcoming.overdue?.length || 0}</strong>
+                    <strong className="admin1-overdue-color">{maintenanceUpcoming.overdue?.length || 0}</strong>
                   </div>
                   <div className="admin1-kpi-card">
                     <span>Upcoming (14d)</span>
-                    <strong style={{ color: "#d97706" }}>{maintenanceUpcoming.upcoming?.length || 0}</strong>
+                    <strong className="admin1-amber">{maintenanceUpcoming.upcoming?.length || 0}</strong>
                   </div>
                   <div className="admin1-kpi-card">
                     <span>Total Cost</span>
@@ -1903,7 +2312,9 @@ const Admin1 = () => {
                 </button>
               </div>
 
-              {maintenanceRecords.length === 0 && !maintenanceLoading ? (
+              {maintenanceLoading ? (
+                <TableSkeleton rows={4} cols={7} />
+              ) : maintenanceRecords.length === 0 ? (
                 <div className="admin1-empty">No maintenance records found.</div>
               ) : (
                 <div className="admin1-table-wrap">
@@ -1936,20 +2347,14 @@ const Admin1 = () => {
                             }`}>{rec.status}</span>
                           </td>
                           <td>
-                            <div style={{ display: "flex", gap: "0.25rem" }}>
-                              {rec.status !== "completed" && rec.status !== "cancelled" && (
-                                <button className="admin1-btn-sm" onClick={() => setShowCompleteMaintenance(rec)}>Complete</button>
-                              )}
+                            <div className="admin1-action-group">
                               {rec.status !== "completed" && (
-                                <button className="admin1-btn-sm admin1-btn-danger" onClick={async () => {
-                                  const ok = await confirm("Delete this maintenance record?", "Delete Maintenance", "Delete", "Cancel", "danger");
-                                  if (!ok) return;
-                                  try {
-                                    await API.delete(`/maintenance/${rec._id}`, authHeaders);
-                                    fetchMaintenance(); fetchMaintenanceUpcoming();
-                                  } catch (e) { setFormMsg({ type: "error", text: e.response?.data?.message || "Failed" }); }
-                                }}>×</button>
+                                <button className="admin1-btn-sm" onClick={() => {
+                      setShowCompleteMaintenance(rec);
+                      setCompleteMaintForm({ cost: rec.cost || "", completedMileage: rec.completedMileage || "", vendor: rec.vendor || "", notes: rec.notes || "" });
+                    }}>Complete</button>
                               )}
+                              <button className="admin1-btn-sm admin1-btn-danger" onClick={() => handleDeleteMaintenance(rec._id)}>Delete</button>
                             </div>
                           </td>
                         </tr>
@@ -1963,7 +2368,7 @@ const Admin1 = () => {
             {/* Schedule Maintenance Modal */}
             {showCreateMaintenance && (
               <div className="admin1-modal-overlay" ref={maintCreateRef} onClick={() => setShowCreateMaintenance(false)} role="dialog" aria-modal="true" aria-label="Schedule maintenance modal">
-                <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+                <div className="admin1-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="admin1-modal-header">
                     <h2>Schedule Maintenance</h2>
                     <button className="admin1-modal-close" onClick={() => setShowCreateMaintenance(false)} data-close-modal>×</button>
@@ -1991,7 +2396,7 @@ const Admin1 = () => {
                     <label>Description</label>
                     <textarea rows={2} value={maintenanceForm.description} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })} />
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="admin1-grid-2col">
                       <label>Scheduled Date<input type="date" value={maintenanceForm.scheduledDate} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, scheduledDate: e.target.value })} /></label>
                       <label>Scheduled Mileage<input type="number" value={maintenanceForm.scheduledMileage} onChange={(e) => setMaintenanceForm({ ...maintenanceForm, scheduledMileage: e.target.value })} placeholder="km" /></label>
                     </div>
@@ -2025,7 +2430,7 @@ const Admin1 = () => {
             {/* Complete Maintenance Modal */}
             {showCompleteMaintenance && (
               <div className="admin1-modal-overlay" ref={maintCompleteRef} onClick={() => setShowCompleteMaintenance(null)} role="dialog" aria-modal="true" aria-label="Complete service modal">
-                <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "450px" }}>
+                <div className="admin1-modal admin1-modal-sm" onClick={(e) => e.stopPropagation()}>
                   <div className="admin1-modal-header">
                     <h2>Complete Service</h2>
                     <button className="admin1-modal-close" onClick={() => setShowCompleteMaintenance(null)} data-close-modal>×</button>
@@ -2035,26 +2440,26 @@ const Admin1 = () => {
                     <p>Service: <strong>{showCompleteMaintenance.serviceType}</strong></p>
 
                     <label>Final Cost</label>
-                    <input id="completeCost" type="number" defaultValue={showCompleteMaintenance.cost || 0} />
+                    <input type="number" value={completeMaintForm.cost} onChange={(e) => setCompleteMaintForm({ ...completeMaintForm, cost: e.target.value })} />
 
                     <label>Completed Mileage</label>
-                    <input id="completeMileage" type="number" placeholder="km" />
+                    <input type="number" placeholder="km" value={completeMaintForm.completedMileage} onChange={(e) => setCompleteMaintForm({ ...completeMaintForm, completedMileage: e.target.value })} />
 
                     <label>Vendor</label>
-                    <input id="completeVendor" defaultValue={showCompleteMaintenance.vendor || ""} />
+                    <input value={completeMaintForm.vendor} onChange={(e) => setCompleteMaintForm({ ...completeMaintForm, vendor: e.target.value })} />
 
                     <label>Notes</label>
-                    <textarea id="completeNotes" rows={2} defaultValue={showCompleteMaintenance.notes || ""} />
+                    <textarea rows={2} value={completeMaintForm.notes} onChange={(e) => setCompleteMaintForm({ ...completeMaintForm, notes: e.target.value })} />
 
                     <div className="admin1-modal-actions">
                       <button className="secondary" onClick={() => setShowCompleteMaintenance(null)}>Cancel</button>
                       <button onClick={async () => {
                         try {
                           await API.patch(`/maintenance/${showCompleteMaintenance._id}/complete`, {
-                            cost: document.getElementById("completeCost").value,
-                            completedMileage: document.getElementById("completeMileage").value,
-                            vendor: document.getElementById("completeVendor").value,
-                            notes: document.getElementById("completeNotes").value,
+                            cost: completeMaintForm.cost,
+                            completedMileage: completeMaintForm.completedMileage,
+                            vendor: completeMaintForm.vendor,
+                            notes: completeMaintForm.notes,
                           }, authHeaders);
                           setShowCompleteMaintenance(null);
                           fetchMaintenance(); fetchMaintenanceUpcoming();
@@ -2076,13 +2481,16 @@ const Admin1 = () => {
                   <span className="admin1-eyebrow">Billing</span>
                   <h2>Invoices ({invoices.length})</h2>
                 </div>
-                <button onClick={() => { fetchData(); fetchInvoiceStats(); fetchInvoices(); setShowCreateInvoice(true); }}>
-                  + New Invoice
-                </button>
+                <div className="admin1-action-group">
+                  <button className="admin1-action" onClick={() => exportToExcel(invoices.map((inv) => ({ "Invoice #": inv.invoiceNumber, Customer: inv.customer?.name, Total: inv.total, Status: inv.status, Due: inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "", Paid: inv.paidDate ? new Date(inv.paidDate).toLocaleDateString() : "" })), "invoices", "Invoices")}>Export</button>
+                  <button onClick={() => { fetchData(); fetchInvoiceStats(); fetchInvoices(); setShowCreateInvoice(true); }}>
+                    + New Invoice
+                  </button>
+                </div>
               </div>
 
               {invoiceStats && (
-                <div className="admin1-kpis" style={{ marginBottom: "1rem" }}>
+                <div className="admin1-kpis">
                   <div className="admin1-kpi-card">
                     <span>Total Invoiced</span>
                     <strong>R{(invoiceStats.totalInvoiced || 0).toLocaleString()}</strong>
@@ -2093,7 +2501,7 @@ const Admin1 = () => {
                   </div>
                   <div className="admin1-kpi-card">
                     <span>Outstanding</span>
-                    <strong style={{ color: "#e74c3c" }}>R{(invoiceStats.totalOutstanding || 0).toLocaleString()}</strong>
+                    <strong className="admin1-overdue-color">R{(invoiceStats.totalOutstanding || 0).toLocaleString()}</strong>
                   </div>
                 </div>
               )}
@@ -2115,7 +2523,9 @@ const Admin1 = () => {
                 </button>
               </div>
 
-              {invoices.length === 0 && !invoicesLoading ? (
+              {invoicesLoading ? (
+                <TableSkeleton rows={4} cols={7} />
+              ) : filteredInvoices.length === 0 ? (
                 <div className="admin1-empty">No invoices found.</div>
               ) : (
                 <div className="admin1-table-wrap">
@@ -2133,8 +2543,8 @@ const Admin1 = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {invoices.map((inv) => (
-                        <tr key={inv._id}>
+                      {filteredInvoices.map((inv) => (
+                        <tr key={inv._id} style={{ cursor: "pointer" }} onClick={() => setDetailInvoice(inv)}>
                           <td><strong>{inv.invoiceNumber}</strong></td>
                           <td>{inv.customer?.name || "-"}</td>
                           <td>{inv.load?.ticketNumber || "-"}</td>
@@ -2152,22 +2562,37 @@ const Admin1 = () => {
                           </td>
                           <td>{inv.paidDate ? new Date(inv.paidDate).toLocaleDateString() : "-"}</td>
                           <td>
-                            <div style={{ display: "flex", gap: "0.25rem", flexWrap: "wrap" }}>
-                              {inv.status !== "paid" && inv.status !== "cancelled" && (
-                                <button className="admin1-btn-sm" onClick={() => setShowMarkPaid(inv)}>Pay</button>
+                            <div className="admin1-action-group">
+                              {inv.status === "draft" && (
+                                <>
+                                  <button className="admin1-btn-sm" onClick={async () => {
+                                    try {
+                                      await API.patch(`/invoices/${inv._id}`, { status: "sent" }, authHeaders);
+                                      setFormMsg({ type: "success", text: "Invoice sent" });
+                                      fetchInvoices(); fetchInvoiceStats();
+                                    } catch (e) { setFormMsg({ type: "error", text: e.response?.data?.message || "Send failed" }); }
+                                  }}>Send</button>
+                                  <button className="admin1-btn-sm admin1-btn-danger" onClick={() => handleCancelInvoice(inv._id)}>Cancel</button>
+                                </>
                               )}
-                              {inv.status === "sent" && inv.paymentUrl && (
-                                <a href={inv.paymentUrl} target="_blank" rel="noopener noreferrer" className="admin1-btn-sm" style={{ background: "#003366", color: "#fff", textDecoration: "none", padding: "4px 8px", borderRadius: 4, fontSize: 12 }}>Pay Now</a>
+                              {inv.status === "sent" && (
+                                <>
+                                  <button className="admin1-btn-sm" onClick={() => {
+                                    setShowMarkPaid(inv);
+                                    setPaymentForm({ paymentMethod: "", paymentReference: "", paidDate: new Date().toISOString().split("T")[0] });
+                                  }}>Pay</button>
+                                  <button className="admin1-btn-sm" onClick={() => handleMarkOverdue(inv._id)}>Mark Overdue</button>
+                                  <button className="admin1-btn-sm admin1-btn-danger" onClick={() => handleCancelInvoice(inv._id)}>Cancel</button>
+                                </>
                               )}
-                              {inv.status !== "paid" && inv.status !== "cancelled" && (
-                                <button className="admin1-btn-sm admin1-btn-danger" onClick={async () => {
-                                  const ok = await confirm(`Cancel invoice ${inv.invoiceNumber}?`, "Cancel Invoice", "Cancel Invoice", "Keep", "danger");
-                                  if (!ok) return;
-                                  try {
-                                    await API.patch(`/invoices/${inv._id}/cancel`, {}, authHeaders);
-                                    fetchInvoices(); fetchInvoiceStats();
-                                  } catch (e) { setFormMsg({ type: "error", text: e.response?.data?.message || "Failed" }); }
-                                }}>X</button>
+                              {inv.status === "overdue" && (
+                                <button className="admin1-btn-sm" onClick={() => {
+                                  setShowMarkPaid(inv);
+                                  setPaymentForm({ paymentMethod: "", paymentReference: "", paidDate: new Date().toISOString().split("T")[0] });
+                                }}>Pay Now</button>
+                              )}
+                              {inv.paymentUrl && (
+                                <a href={inv.paymentUrl} target="_blank" rel="noopener noreferrer" className="admin1-pay-now-btn">Pay Now</a>
                               )}
                             </div>
                           </td>
@@ -2178,16 +2603,90 @@ const Admin1 = () => {
                 </div>
               )}
             </section>
+          </>
+        )}
+
+            {detailInvoice && (
+              <div className="admin1-modal-overlay" onClick={() => setDetailInvoice(null)} role="dialog" aria-modal="true" aria-label="Invoice detail">
+                <div className="admin1-modal admin1-modal-lg" onClick={(e) => e.stopPropagation()}>
+                  <div className="admin1-modal-header">
+                    <div>
+                      <span className="admin1-eyebrow">Invoice</span>
+                      <h2>{detailInvoice.invoiceNumber}</h2>
+                    </div>
+                    <button onClick={() => setDetailInvoice(null)} data-close-modal aria-label="Close modal">×</button>
+                  </div>
+                  <div className="admin1-modal-body">
+                    <div className="admin1-resolve-grid">
+                      <div><span>Customer</span><strong>{detailInvoice.customer?.name || "-"}</strong></div>
+                      <div><span>Load</span><strong>{detailInvoice.load?.ticketNumber || "-"}</strong></div>
+                      <div><span>Status</span><strong><span className={`admin1-badge ${detailInvoice.status === "paid" ? "success" : detailInvoice.status === "overdue" || detailInvoice.status === "cancelled" ? "danger" : detailInvoice.status === "sent" ? "info" : "warning"}`}>{detailInvoice.status}</span></strong></div>
+                      <div><span>Total</span><strong>R{(detailInvoice.total || 0).toLocaleString()}</strong></div>
+                      <div><span>Subtotal</span><strong>R{(detailInvoice.subtotal || 0).toLocaleString()}</strong></div>
+                      <div><span>Tax</span><strong>R{(detailInvoice.taxAmount || 0).toLocaleString()} ({detailInvoice.taxPercent || 0}%)</strong></div>
+                      <div><span>Discount</span><strong>R{(detailInvoice.discount || 0).toLocaleString()}</strong></div>
+                      <div><span>Due Date</span><strong>{detailInvoice.dueDate ? new Date(detailInvoice.dueDate).toLocaleDateString() : "-"}</strong></div>
+                      <div><span>Paid Date</span><strong>{detailInvoice.paidDate ? new Date(detailInvoice.paidDate).toLocaleDateString() : "-"}</strong></div>
+                      <div><span>Payment Method</span><strong>{detailInvoice.paymentMethod || "-"}</strong></div>
+                      <div><span>Payment Ref</span><strong>{detailInvoice.paymentReference || "-"}</strong></div>
+                    </div>
+
+                    <h4 style={{ margin: "16px 0 8px", fontSize: 13, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.3px" }}>Line Items</h4>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
+                          <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>Description</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>Qty</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>Rate</th>
+                          <th style={{ textAlign: "right", padding: "6px 8px", color: "#64748b", fontWeight: 600 }}>Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(detailInvoice.lineItems || []).map((item, i) => (
+                          <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                            <td style={{ padding: "6px 8px" }}>{item.description}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px" }}>{item.quantity}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px" }}>R{(item.rate || 0).toLocaleString()}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px" }}>R{(item.amount || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={3} style={{ textAlign: "right", padding: "8px", fontWeight: 600 }}>Total</td>
+                          <td style={{ textAlign: "right", padding: "8px", fontWeight: 700 }}>R{(detailInvoice.total || 0).toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+
+                    {detailInvoice.notes && (
+                      <div style={{ marginTop: 12, padding: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6 }}>
+                        <p style={{ margin: 0, fontSize: 13, color: "#92400e" }}><strong>Notes:</strong> {detailInvoice.notes}</p>
+                      </div>
+                    )}
+
+                    {detailInvoice.paymentUrl && (
+                      <div style={{ marginTop: 12 }}>
+                        <a href={detailInvoice.paymentUrl} target="_blank" rel="noopener noreferrer" className="admin1-pay-now-btn">Pay Online</a>
+                      </div>
+                    )}
+                  </div>
+                  <div className="admin1-modal-actions">
+                    <button className="secondary" onClick={() => setDetailInvoice(null)}>Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Create Invoice Modal */}
             {showCreateInvoice && (
               <div className="admin1-modal-overlay" ref={invoiceCreateRef} onClick={() => setShowCreateInvoice(false)} role="dialog" aria-modal="true" aria-label="Create invoice modal">
-                <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "600px" }}>
+                <div className="admin1-modal admin1-modal-lg" onClick={(e) => e.stopPropagation()}>
                   <div className="admin1-modal-header">
                     <h2>Create Invoice</h2>
                     <button className="admin1-modal-close" onClick={() => setShowCreateInvoice(false)} data-close-modal>×</button>
                   </div>
-                  <div className="admin1-modal-body" style={{ maxHeight: "70vh", overflowY: "auto" }}>
+                  <div className="admin1-modal-body admin1-modal-body-scroll">
                     <label>Customer *</label>
                     <select value={invoiceForm.customer} onChange={(e) => setInvoiceForm({ ...invoiceForm, customer: e.target.value })}>
                       <option value="">Select customer</option>
@@ -2217,7 +2716,7 @@ const Admin1 = () => {
                         );
                         return loads.filter(l => !invoicedLoadIds.has(l._id));
                       })().map((l) => (
-                        <option key={l._id} value={l._id}>{l.ticketNumber} — {l.customer?.name || "unknown"}</option>
+                        <option key={l._id} value={l._id}>{l.ticketNumber} — {l.customer?.name || "unknown"} — {l.pickupLocation} → {l.deliveryLocation}</option>
                       ))}
                     </select>
 
@@ -2232,20 +2731,20 @@ const Admin1 = () => {
 
                     <label>Line Items</label>
                     {invoiceForm.lineItems.map((item, idx) => (
-                      <div key={idx} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.5rem", alignItems: "center" }}>
-                        <input style={{ flex: 2 }} placeholder="Description" value={item.description}
+                      <div key={idx} className="admin1-line-item-row">
+                        <input className="admin1-line-item-desc" placeholder="Description" value={item.description}
                           onChange={(e) => {
                             const items = [...invoiceForm.lineItems];
                             items[idx] = { ...items[idx], description: e.target.value };
                             setInvoiceForm({ ...invoiceForm, lineItems: items });
                           }} />
-                        <input style={{ width: 60 }} type="number" placeholder="Qty" value={item.quantity}
+                        <input className="admin1-line-item-qty" type="number" placeholder="Qty" value={item.quantity}
                           onChange={(e) => {
                             const items = [...invoiceForm.lineItems];
                             items[idx] = { ...items[idx], quantity: Number(e.target.value), amount: Number(e.target.value) * item.rate };
                             setInvoiceForm({ ...invoiceForm, lineItems: items });
                           }} />
-                        <input style={{ width: 80 }} type="number" placeholder="Rate" value={item.rate}
+                        <input className="admin1-line-item-rate" type="number" placeholder="Rate" value={item.rate}
                           onChange={(e) => {
                             const items = [...invoiceForm.lineItems];
                             items[idx] = { ...items[idx], rate: Number(e.target.value), amount: item.quantity * Number(e.target.value) };
@@ -2264,7 +2763,7 @@ const Admin1 = () => {
                       </div>
                     ))}
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "0.5rem" }}>
+                    <div className="admin1-grid-2col" style={{ marginTop: "0.5rem" }}>
                       <label>Tax %<input type="number" value={invoiceForm.taxPercent} onChange={(e) => setInvoiceForm({ ...invoiceForm, taxPercent: Number(e.target.value) })} /></label>
                       <label>Discount<input type="number" value={invoiceForm.discount} onChange={(e) => setInvoiceForm({ ...invoiceForm, discount: Number(e.target.value) })} /></label>
                     </div>
@@ -2298,7 +2797,7 @@ const Admin1 = () => {
             {/* Mark as Paid Modal */}
             {showMarkPaid && (
               <div className="admin1-modal-overlay" ref={invoicePaidRef} onClick={() => setShowMarkPaid(null)} role="dialog" aria-modal="true" aria-label="Mark invoice paid modal">
-                <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "450px" }}>
+                <div className="admin1-modal admin1-modal-sm" onClick={(e) => e.stopPropagation()}>
                   <div className="admin1-modal-header">
                     <h2>Mark Invoice Paid</h2>
                     <button className="admin1-modal-close" onClick={() => setShowMarkPaid(null)} data-close-modal>×</button>
@@ -2307,7 +2806,7 @@ const Admin1 = () => {
                     <p>Invoice: <strong>{showMarkPaid.invoiceNumber}</strong></p>
                     <p>Amount: <strong>R{(showMarkPaid.total || 0).toLocaleString()}</strong></p>
                     <label>Payment Method</label>
-                    <select id="paymentMethod">
+                    <select value={paymentForm.paymentMethod} onChange={(e) => setPaymentForm({ ...paymentForm, paymentMethod: e.target.value })}>
                       <option value="">Select...</option>
                       <option value="bank transfer">Bank Transfer</option>
                       <option value="credit card">Credit Card</option>
@@ -2315,17 +2814,17 @@ const Admin1 = () => {
                       <option value="check">Check</option>
                     </select>
                     <label>Reference</label>
-                    <input id="paymentReference" placeholder="e.g. TRANS-001" />
+                    <input value={paymentForm.paymentReference} onChange={(e) => setPaymentForm({ ...paymentForm, paymentReference: e.target.value })} placeholder="e.g. TRANS-001" />
                     <label>Paid Date</label>
-                    <input id="paidDate" type="date" defaultValue={new Date().toISOString().split("T")[0]} />
+                    <input type="date" value={paymentForm.paidDate} onChange={(e) => setPaymentForm({ ...paymentForm, paidDate: e.target.value })} />
                     <div className="admin1-modal-actions">
                       <button className="secondary" onClick={() => setShowMarkPaid(null)}>Cancel</button>
                       <button onClick={async () => {
                         try {
                           await API.patch(`/invoices/${showMarkPaid._id}/paid`, {
-                            paymentMethod: document.getElementById("paymentMethod").value,
-                            paymentReference: document.getElementById("paymentReference").value,
-                            paidDate: document.getElementById("paidDate").value,
+                            paymentMethod: paymentForm.paymentMethod,
+                            paymentReference: paymentForm.paymentReference,
+                            paidDate: paymentForm.paidDate,
                           }, authHeaders);
                           setShowMarkPaid(null);
                           fetchInvoices(); fetchInvoiceStats();
@@ -2336,8 +2835,6 @@ const Admin1 = () => {
                 </div>
               </div>
             )}
-          </>
-        )}
 
         {activePanel === "documents" && (
           <section className="admin1-panel">
@@ -2346,7 +2843,10 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">Records</span>
                 <h2>Documents ({documents.length})</h2>
               </div>
-              <button onClick={() => { fetchDocuments(); setShowCreateDoc(true); }}>+ New Document</button>
+              <div className="admin1-action-group">
+                <button className="admin1-action" onClick={() => exportToExcel(documents.map((d) => ({ Title: d.title, Type: d.type, Entity: d.entityType, "Issue Date": d.issueDate ? new Date(d.issueDate).toLocaleDateString() : "", "Expiry Date": d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : "", Status: d.status })), "documents", "Documents")}>Export</button>
+                <button onClick={() => { fetchDocuments(); setShowCreateDoc(true); }}>+ New Document</button>
+              </div>
             </div>
 
             <div className="admin1-filters">
@@ -2391,7 +2891,9 @@ const Admin1 = () => {
               <button onClick={() => fetchDocuments()}>{documentsLoading ? "Loading..." : "Refresh"}</button>
             </div>
 
-            {documents.length === 0 && !documentsLoading ? (
+            {documentsLoading ? (
+              <TableSkeleton rows={4} cols={6} />
+            ) : documents.length === 0 ? (
               <div className="admin1-empty">No documents found.</div>
             ) : (
               <div className="admin1-table-wrap">
@@ -2426,7 +2928,21 @@ const Admin1 = () => {
                             </span>
                           </td>
                           <td>
-                            <div style={{ display: "flex", gap: "0.25rem" }}>
+                            <div className="admin1-action-group">
+                              <button className="admin1-btn-sm" onClick={() => {
+                                setEditDoc(doc);
+                                setDocForm({
+                                  title: doc.title || "",
+                                  type: doc.type || "other",
+                                  entityType: doc.entityType || "general",
+                                  entityId: doc.entityId || "",
+                                  fileUrl: doc.fileUrl || "",
+                                  issueDate: doc.issueDate ? doc.issueDate.split("T")[0] : "",
+                                  expiryDate: doc.expiryDate ? doc.expiryDate.split("T")[0] : "",
+                                  notes: doc.notes || "",
+                                });
+                                setShowCreateDoc(true);
+                              }}>Edit</button>
                               <button className="admin1-btn-sm admin1-btn-danger" onClick={async () => {
                                   const ok = await confirm(`Delete "${doc.title}"?`, "Delete Document", "Delete", "Cancel", "danger");
                                   if (!ok) return;
@@ -2445,13 +2961,13 @@ const Admin1 = () => {
               </div>
             )}
 
-            {/* Create Document Modal */}
+            {/* Create / Edit Document Modal */}
             {showCreateDoc && (
-              <div className="admin1-modal-overlay" ref={docCreateRef} onClick={() => setShowCreateDoc(false)} role="dialog" aria-modal="true" aria-label="New document modal">
-                <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+              <div className="admin1-modal-overlay" ref={docCreateRef} onClick={() => { setShowCreateDoc(false); setEditDoc(null); }} role="dialog" aria-modal="true" aria-label={editDoc ? "Edit document modal" : "New document modal"}>
+                <div className="admin1-modal" onClick={(e) => e.stopPropagation()}>
                   <div className="admin1-modal-header">
-                    <h2>New Document</h2>
-                    <button className="admin1-modal-close" onClick={() => setShowCreateDoc(false)} data-close-modal>×</button>
+                    <h2>{editDoc ? "Edit Document" : "New Document"}</h2>
+                    <button className="admin1-modal-close" onClick={() => { setShowCreateDoc(false); setEditDoc(null); }} data-close-modal>×</button>
                   </div>
                   <div className="admin1-modal-body">
                     <label>Title *</label>
@@ -2476,19 +2992,25 @@ const Admin1 = () => {
                     </select>
                     <label>File URL</label>
                     <input value={docForm.fileUrl} onChange={(e) => setDocForm({ ...docForm, fileUrl: e.target.value })} placeholder="https://..." />
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+                    <div className="admin1-grid-2col">
                       <label>Issue Date<input type="date" value={docForm.issueDate} onChange={(e) => setDocForm({ ...docForm, issueDate: e.target.value })} /></label>
                       <label>Expiry Date<input type="date" value={docForm.expiryDate} onChange={(e) => setDocForm({ ...docForm, expiryDate: e.target.value })} /></label>
                     </div>
                     <label>Notes</label>
                     <textarea rows={2} value={docForm.notes} onChange={(e) => setDocForm({ ...docForm, notes: e.target.value })} />
                     <div className="admin1-modal-actions">
-                      <button className="secondary" onClick={() => setShowCreateDoc(false)}>Cancel</button>
+                      <button className="secondary" onClick={() => { setShowCreateDoc(false); setEditDoc(null); }}>Cancel</button>
                       <button onClick={async () => {
                         if (!docForm.title) return setFormMsg({ type: "error", text: "Title is required" });
                         try {
-                          await API.post("/documents", docForm, authHeaders);
+                          if (editDoc) {
+                            await API.put(`/documents/${editDoc._id}`, docForm, authHeaders);
+                          } else {
+                            await API.post("/documents", docForm, authHeaders);
+                          }
                           setShowCreateDoc(false);
+                          setEditDoc(null);
+                          setFormMsg({ type: "success", text: editDoc ? "Document updated" : "Document created" });
                           setDocForm({ title: "", type: "other", entityType: "general", entityId: "", fileUrl: "", issueDate: "", expiryDate: "", notes: "" });
                           fetchDocuments();
                         } catch (e) { setFormMsg({ type: "error", text: e.response?.data?.message || "Failed" }); }
@@ -2540,18 +3062,18 @@ const Admin1 = () => {
 
               {profitData && (
                 <>
-                  <div className="admin1-kpis" style={{ marginBottom: "1rem" }}>
+                  <div className="admin1-kpis">
                     <div className="admin1-kpi-card">
                       <span>Revenue</span>
-                      <strong style={{ color: "#16a34a" }}>R{(profitData.summary.totalRevenue || 0).toLocaleString()}</strong>
+                      <strong className="admin1-green">R{(profitData.summary.totalRevenue || 0).toLocaleString()}</strong>
                     </div>
                     <div className="admin1-kpi-card">
                       <span>Fuel Cost</span>
-                      <strong style={{ color: "#d97706" }}>R{(profitData.summary.totalFuelCost || 0).toLocaleString()}</strong>
+                      <strong className="admin1-amber">R{(profitData.summary.totalFuelCost || 0).toLocaleString()}</strong>
                     </div>
                     <div className="admin1-kpi-card">
                       <span>Maintenance Cost</span>
-                      <strong style={{ color: "#d97706" }}>R{(profitData.summary.totalMaintenanceCost || 0).toLocaleString()}</strong>
+                      <strong className="admin1-amber">R{(profitData.summary.totalMaintenanceCost || 0).toLocaleString()}</strong>
                     </div>
                     <div className="admin1-kpi-card">
                       <span>Profit</span>
@@ -2642,10 +3164,10 @@ const Admin1 = () => {
 
               {scorecardData && (
                 <>
-                  <div className="admin1-kpis" style={{ marginBottom: "1rem" }}>
+                  <div className="admin1-kpis">
                     <div className="admin1-kpi-card">
                       <span>On-Time</span>
-                      <strong style={{ color: "#16a34a" }}>{scorecardData.summary.onTimePercent || "N/A"}%</strong>
+                      <strong className="admin1-green">{scorecardData.summary.onTimePercent || "N/A"}%</strong>
                       <small>{scorecardData.summary.onTimeCount}/{scorecardData.summary.totalCompleted} on time</small>
                     </div>
                     <div className="admin1-kpi-card">
@@ -2667,6 +3189,33 @@ const Admin1 = () => {
                     </div>
                   </div>
 
+                  {scorecardData.recentLoads && scorecardData.recentLoads.length > 0 && (
+                    <div style={{ marginBottom: 16 }}>
+                      <h4 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 600, color: "#64748b" }}>On-Time Rate Trend</h4>
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={(() => {
+                          const byMonth = {};
+                          scorecardData.recentLoads.filter((l) => l.completedAt).forEach((l) => {
+                            const d = new Date(l.completedAt);
+                            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                            if (!byMonth[key]) byMonth[key] = { total: 0, onTime: 0 };
+                            byMonth[key].total++;
+                            if (l.deliveryDate && new Date(l.completedAt) <= new Date(l.deliveryDate)) byMonth[key].onTime++;
+                          });
+                          return Object.entries(byMonth).map(([month, data]) => ({
+                            month,
+                            rate: data.total > 0 ? Math.round((data.onTime / data.total) * 100) : 0,
+                          }));
+                        })()}>
+                          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                          <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+                          <Tooltip formatter={(val) => `${val}%`} />
+                          <Bar dataKey="rate" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
                   <div className="admin1-table-wrap">
                     <table>
                       <thead>
@@ -2686,7 +3235,7 @@ const Admin1 = () => {
                           <tr key={load._id}>
                             <td>{load.ticketNumber || "-"}</td>
                             <td>{load.customer || "-"}</td>
-                            <td style={{ fontSize: "0.8rem" }}>{load.pickupLocation} → {load.deliveryLocation}</td>
+                            <td className="admin1-text-small">{load.pickupLocation} → {load.deliveryLocation}</td>
                             <td><span className={`admin1-badge ${load.status === "completed" ? "success" : load.status === "canceled" ? "danger" : "warning"}`}>{load.status}</span></td>
                             <td>{load.distance ? `${load.distance} km` : "-"}</td>
                             <td>{load.completedAt ? new Date(load.completedAt).toLocaleDateString() : "-"}</td>
@@ -2711,6 +3260,78 @@ const Admin1 = () => {
           </>
         )}
 
+        {activePanel === "auditlog" && (
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
+              <div>
+                <span className="admin1-eyebrow">Compliance</span>
+                <h2>Activity Log ({auditLogs.length})</h2>
+              </div>
+            </div>
+
+            <div className="admin1-filters">
+              <label>Entity:
+                <select value={auditFilter.entity} onChange={(e) => setAuditFilter((p) => ({ ...p, entity: e.target.value }))}>
+                  <option value="">All</option>
+                  <option value="Load">Load</option>
+                  <option value="Driver">Driver</option>
+                  <option value="Truck">Truck</option>
+                  <option value="Customer">Customer</option>
+                  <option value="User">User</option>
+                  <option value="Invoice">Invoice</option>
+                  <option value="Maintenance">Maintenance</option>
+                  <option value="Fuel">Fuel</option>
+                </select>
+              </label>
+              <label>Action:
+                <select value={auditFilter.action} onChange={(e) => setAuditFilter((p) => ({ ...p, action: e.target.value }))}>
+                  <option value="">All</option>
+                  <option value="created">Created</option>
+                  <option value="updated">Updated</option>
+                  <option value="deleted">Deleted</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <label>User:
+                <input value={auditFilter.userEmail} onChange={(e) => setAuditFilter((p) => ({ ...p, userEmail: e.target.value }))} placeholder="Filter by email..." />
+              </label>
+              <button onClick={() => fetchAuditLogs(1)}>{auditLoading ? "Loading..." : "Search"}</button>
+            </div>
+
+            {auditLoading ? (
+              <TableSkeleton rows={4} cols={5} />
+            ) : auditLogs.length === 0 ? (
+              <div className="admin1-empty">No activity log entries found.</div>
+            ) : (
+              <div className="admin1-table-wrap" style={{ maxHeight: 500, overflowY: "auto" }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>User</th>
+                      <th>Action</th>
+                      <th>Entity</th>
+                      <th>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.map((log) => (
+                      <tr key={log._id}>
+                        <td style={{ whiteSpace: "nowrap" }}>{log.createdAt ? new Date(log.createdAt).toLocaleString() : "-"}</td>
+                        <td>{log.userName || log.userEmail || "-"}</td>
+                        <td><span className={`admin1-badge ${log.action === "created" ? "success" : log.action === "deleted" || log.action === "rejected" ? "danger" : "info"}`}>{log.action}</span></td>
+                        <td>{log.entity || "-"}{log.entityId ? ` #${log.entityId.slice(-6)}` : ""}</td>
+                        <td style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.details || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
         {activePanel === "fuel" && (
           <section className="admin1-panel">
             <div className="admin1-panel-header">
@@ -2718,6 +3339,7 @@ const Admin1 = () => {
                 <span className="admin1-eyebrow">Fuel Management</span>
                 <h2>Fuel Records ({fuelRecords.length})</h2>
               </div>
+              <button className="admin1-action" onClick={() => exportToExcel(fuelRecords.map((f) => ({ Date: f.date ? new Date(f.date).toLocaleDateString() : "", Truck: f.truck?.registrationNumber, Liters: f.liters, "Cost/L": f.costPerLiter, Total: f.totalCost, Mileage: f.mileage, Vendor: f.vendor, Type: f.fuelType })), "fuel", "Fuel")}>Export Excel</button>
             </div>
 
             <form className="admin1-form" onSubmit={handleCreateFuel}>
@@ -2740,7 +3362,7 @@ const Admin1 = () => {
             </form>
 
             {fuelStats && (
-              <div className="admin1-kpis" style={{ marginBottom: "1rem" }}>
+              <div className="admin1-kpis">
                 <div className="admin1-kpi-card">
                   <span>Total Fuel Cost</span>
                   <strong>R{(fuelStats.totalCost || 0).toLocaleString()}</strong>
@@ -2760,7 +3382,38 @@ const Admin1 = () => {
               </div>
             )}
 
-            {fuelRecords.length === 0 && !fuelLoading ? (
+            {fuelRecords.filter((r) => r.mileage && r.liters).length > 0 && (
+              <div className="admin1-panel" style={{ boxShadow: "none", border: "1px solid #e2e8f0", marginBottom: 16 }}>
+                <div className="admin1-panel-header">
+                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#0f172a" }}>Fuel Efficiency per Truck (km/L)</h4>
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={(() => {
+                    const grouped = {};
+                    fuelRecords.filter((r) => r.mileage && r.liters).forEach((r) => {
+                      const name = r.truck?.registrationNumber || "Unknown";
+                      if (!grouped[name]) grouped[name] = { totalLiters: 0, totalMileage: 0, count: 0 };
+                      grouped[name].totalLiters += r.liters;
+                      grouped[name].totalMileage += r.mileage;
+                      grouped[name].count++;
+                    });
+                    return Object.entries(grouped).map(([name, data]) => ({
+                      name,
+                      efficiency: data.totalMileage > 0 ? Math.round((data.totalMileage / data.totalLiters) * 10) / 10 : 0,
+                    }));
+                  })()}>
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(val) => `${val} km/L`} />
+                    <Bar dataKey="efficiency" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {fuelLoading ? (
+              <TableSkeleton rows={4} cols={7} />
+            ) : fuelRecords.length === 0 ? (
               <div className="admin1-empty">No fuel records found.</div>
             ) : (
               <div className="admin1-table-wrap">
@@ -2830,6 +3483,90 @@ const Admin1 = () => {
         </div>
       )}
 
+      {detailLoad && (
+        <div className="admin1-modal-overlay" onClick={() => setDetailLoad(null)} role="dialog" aria-modal="true" aria-label="Load detail">
+          <div className="admin1-modal admin1-modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="admin1-modal-header">
+              <div>
+                <span className="admin1-eyebrow">Load Detail</span>
+                <h2>{detailLoad.ticketNumber || "Load"}</h2>
+              </div>
+              <button onClick={() => setDetailLoad(null)} data-close-modal aria-label="Close modal">×</button>
+            </div>
+            <div className="admin1-modal-body">
+              <div className="admin1-resolve-grid">
+                <div><span>Customer</span><strong>{detailLoad.customer?.name || "-"}</strong></div>
+                <div><span>Driver</span><strong>{detailLoad.driver?.name || "-"}</strong></div>
+                <div><span>Truck</span><strong>{detailLoad.truck?.registrationNumber || "-"}</strong></div>
+                <div><span>Status</span><strong><Badge value={detailLoad.status} /></strong></div>
+                <div><span>Packages</span><strong>{detailLoad.packages || "0"}</strong></div>
+                <div><span>Weight</span><strong>{detailLoad.weight ? `${detailLoad.weight} kg` : "-"}</strong></div>
+                <div><span>Priority</span><strong>{detailLoad.priority || "normal"}</strong></div>
+                <div><span>Cargo</span><strong>{detailLoad.cargoType || "-"}</strong></div>
+              </div>
+              <div style={{ margin: "16px 0", padding: "12px 16px", background: "#f8fafc", borderRadius: 8, border: "1px solid #f0f1f3" }}>
+                <p style={{ margin: "0 0 4px" }}><strong>Route:</strong> {detailLoad.pickupLocation} → {detailLoad.deliveryLocation}</p>
+                <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
+                  {detailLoad.routeDistance ? `${detailLoad.routeDistance} km` : ""}
+                  {detailLoad.routeDistance && detailLoad.routeDuration ? " · " : ""}
+                  {detailLoad.routeDuration ? `${detailLoad.routeDuration} min` : ""}
+                </p>
+              </div>
+
+              <h4 style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.3px" }}>Trip Timeline</h4>
+              <div style={{ borderLeft: "2px solid #e2e8f0", paddingLeft: 16, marginBottom: 16 }}>
+                {[
+                  { label: "Created", time: detailLoad.createdAt },
+                  { label: "Arrived at Pickup", time: detailLoad.milestones?.arrivedPickupAt },
+                  { label: "Loaded", time: detailLoad.milestones?.loadedAt },
+                  { label: "Arrived at Delivery", time: detailLoad.milestones?.arrivedDeliveryAt },
+                  { label: "Completed", time: detailLoad.milestones?.completedAt || (detailLoad.status === "completed" ? detailLoad.updatedAt : null) },
+                ].filter((s) => s.time).map((step, i) => (
+                  <div key={i} style={{ position: "relative", paddingBottom: 12 }}>
+                    <div style={{ position: "absolute", left: -21, top: 4, width: 10, height: 10, borderRadius: "50%", background: "#6366f1", border: "2px solid #fff" }} />
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>{step.label}</p>
+                    <p style={{ margin: 0, fontSize: 12, color: "#94a3b8" }}>{new Date(step.time).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+
+              {detailLoad.driverIssue && detailLoad.driverIssue.status === "open" && (
+                <div className="admin1-issue-box">
+                  <strong>{detailLoad.driverIssue.type}</strong>
+                  <p>{detailLoad.driverIssue.description}</p>
+                </div>
+              )}
+
+              {detailLoad.notes && (
+                <div style={{ marginTop: 8, padding: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#92400e" }}><strong>Notes:</strong> {detailLoad.notes}</p>
+                </div>
+              )}
+
+              {(detailLoad.podUrl || detailLoad.capturedPhotoUrl || detailLoad.signatureUrl) && (
+                <div style={{ marginTop: 12, padding: "10px 14px", background: "#f8fafc", borderRadius: 8, border: "1px solid #f0f1f3" }}>
+                  <h4 style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.3px" }}>Attachments</h4>
+                  <div className="admin1-action-group">
+                    {detailLoad.podUrl && (
+                      <a href={`${BACKEND_URL}${detailLoad.podUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action">View POD</a>
+                    )}
+                    {detailLoad.capturedPhotoUrl && (
+                      <a href={`${BACKEND_URL}${detailLoad.capturedPhotoUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action">Photo</a>
+                    )}
+                    {detailLoad.signatureUrl && (
+                      <a href={`${BACKEND_URL}${detailLoad.signatureUrl}`} target="_blank" rel="noopener noreferrer" className="admin1-action">Signature</a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="admin1-modal-actions">
+              <button className="secondary" onClick={() => setDetailLoad(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog />
       {resolveLoad && (
         <div className="admin1-modal-overlay" ref={resolveModalRef} onClick={() => setResolveLoad(null)} role="dialog" aria-modal="true" aria-label="Resolve issue modal">
@@ -2878,6 +3615,41 @@ const Admin1 = () => {
             <div className="admin1-modal-actions">
               <button className="secondary" onClick={() => setResolveLoad(null)}>Cancel</button>
               <button onClick={handleResolveIssue}>Resolve Issue</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mapPickerOpen && (
+        <div className="admin1-modal-overlay" onClick={() => setMapPickerOpen(false)} role="dialog" aria-modal="true" aria-label="Pick location on map">
+          <div className="admin1-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "700px" }}>
+            <div className="admin1-modal-header">
+              <h2>Pick {mapPickerField === "pickupLocation" ? "Pickup" : "Delivery"} Location</h2>
+              <button onClick={() => setMapPickerOpen(false)} data-close-modal aria-label="Close modal">×</button>
+            </div>
+            <div className="admin1-modal-body">
+              <p style={{ margin: "0 0 8px", fontSize: 13, color: "#64748b" }}>Click on the map to set the location, then adjust the address below.</p>
+              <div style={{ height: 350, borderRadius: 8, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 12 }}>
+                <MapContainer
+                  center={mapPickerPos || [-26.2041, 28.0473]}
+                  zoom={6}
+                  style={{ height: "100%", width: "100%" }}
+                >
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <MapClickHandler onMapClick={handleMapPick} markerPos={mapPickerPos} onMarkerDrag={handleMapPick} />
+                </MapContainer>
+              </div>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>Address</label>
+              <input
+                value={mapPickerAddress}
+                onChange={(e) => setMapPickerAddress(e.target.value)}
+                style={{ width: "100%", minHeight: 38, padding: "7px 11px", border: "1px solid #e2e8f0", borderRadius: 6, fontSize: 13, boxSizing: "border-box" }}
+                placeholder="Click on the map to auto-fill, or type manually"
+              />
+            </div>
+            <div className="admin1-modal-actions">
+              <button className="secondary" onClick={() => setMapPickerOpen(false)}>Cancel</button>
+              <button onClick={confirmMapPick}>Confirm Location</button>
             </div>
           </div>
         </div>

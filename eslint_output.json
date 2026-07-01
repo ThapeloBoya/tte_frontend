@@ -1,0 +1,10 @@
+
+Oops! Something went wrong! :(
+
+ESLint: 8.57.1
+
+Failed to read JSON file at C:\Users\Thapelo\Documents\websites\TMS\front\.eslintrc.json:
+
+Cannot read config file: C:\Users\Thapelo\Documents\websites\TMS\front\.eslintrc.json
+Error: ENOENT: no such file or directory, open 'C:\Users\Thapelo\Documents\websites\TMS\front\.eslintrc.json'
+

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
 import API from "../services/api";
 import "../styles/Track.css";
 
@@ -27,22 +27,25 @@ const directionsLink = (from, to) => {
 };
 
 const Track = () => {
-  const [code, setCode] = useState("");
+  const { ticketNumber: urlTicket } = useParams();
+  const [code, setCode] = useState(urlTicket || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched] = useState(!!urlTicket);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const trimmed = code.trim().toUpperCase();
-    if (!trimmed) return;
+  useEffect(() => {
+    if (urlTicket) {
+      setCode(urlTicket.toUpperCase());
+      doSearch(urlTicket.toUpperCase());
+    }
+  }, [urlTicket]);
 
+  const doSearch = async (trimmed) => {
     setLoading(true);
     setError("");
     setResult(null);
     setSearched(true);
-
     try {
       const res = await API.get(`/track/${trimmed}`);
       setResult(res.data);
@@ -55,6 +58,13 @@ const Track = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    doSearch(trimmed);
   };
 
   const milestoneEntries = [
@@ -167,12 +177,6 @@ const Track = () => {
                 <strong>{formatDateTime(result.deliveryDate)}</strong>
               </div>
             </div>
-
-            {result.podUrl && (
-              <a className="track-pod-btn" href={`${BACKEND_URL}${result.podUrl}`} target="_blank" rel="noopener noreferrer">
-                📄 View Proof of Delivery
-              </a>
-            )}
 
             {result.status === "completed" && result.isApproved && (
               <p className="track-approved">✓ This shipment has been verified and approved.</p>
