@@ -18,7 +18,7 @@ const OAuthCallback = () => {
       login(user, token);
 
       switch (role) {
-        case "superadmin": navigate("/dashboard"); break;
+        case "superadmin": navigate("/admin1"); break;
         case "admin1": navigate("/admin1"); break;
         case "admin2": navigate("/admin2"); break;
         case "driver": navigate("/driver"); break;

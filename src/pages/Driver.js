@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import { useAuth } from "../contexts/AuthContext";
-import "../styles/DriverDashboard.css";
+import "../styles/Admin1.css";
+import "../styles/Driver.css";
 import { sanitizeInput } from "../utils/sanitize";
 import FormField from "../components/FormField";
 import { required, validateForm } from "../utils/validation";
@@ -19,6 +20,16 @@ import usePolling from "../hooks/usePolling";
 import socket from "../services/socket";
 import SignatureCanvas from "react-signature-canvas";
 import ChatDrawer from "../components/ChatDrawer";
+import { MapContainer, TileLayer, Polyline, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const PAGE_SIZE = 20;
@@ -36,7 +47,7 @@ const statusTone = {
 };
 
 const Badge = ({ value }) => (
-  <span className={`driver-badge ${statusTone[value] || "neutral"}`}>{value || "unknown"}</span>
+  <span className={`admin1-badge ${statusTone[value] || "neutral"}`}>{value || "unknown"}</span>
 );
 
 const mapLink = (location) =>
@@ -48,6 +59,24 @@ const directionsLink = (from, to) => {
 };
 
 const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : "-");
+
+const decodePolyline = (encoded) => {
+  if (!encoded || typeof encoded !== "string") return [];
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+    shift = 0; result = 0;
+    do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+  return points;
+};
 
 const DriverDashboard = () => {
   const { token, user, logout } = useAuth();
@@ -91,6 +120,26 @@ const DriverDashboard = () => {
   const [showSignature, setShowSignature] = useState(false);
   const sigRef = useRef(null);
 
+  // Duty status
+  const [dutyStatus, setDutyStatus] = useState("available");
+
+  // Truck info
+  const [truckInfo, setTruckInfo] = useState(null);
+  const [truckAlerts, setTruckAlerts] = useState([]);
+
+  // Notifications
+  const [notifications, setNotifications] = useState([]);
+  const [notifUnread, setNotifUnread] = useState(0);
+
+  // Fuel form
+  const [fuelForm, setFuelForm] = useState({ liters: "", costPerLiter: "", vendor: "", notes: "" });
+
+  // Documents
+  const [documents, setDocuments] = useState([]);
+
+  // Guided delivery workflow
+  const [deliveryWizard, setDeliveryWizard] = useState({ loadId: null, step: "stops" });
+
   const fetchDriverProfile = useCallback(async () => {
     if (!token) return;
 
@@ -101,8 +150,41 @@ const DriverDashboard = () => {
         phone: res.data.phone || "",
         licenseNumber: res.data.licenseNumber || "",
       });
+      setDutyStatus(res.data.status || "available");
     } catch (err) {
       console.error(err.response?.data || err.message);
+    }
+  }, [authHeaders, token]);
+
+  const fetchTruckInfo = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await API.get("/drivers/my-truck", authHeaders);
+      setTruckInfo(res.data.truck);
+      setTruckAlerts(res.data.alerts || []);
+    } catch (err) {
+      console.error("Failed to fetch truck info:", err.response?.data || err.message);
+    }
+  }, [authHeaders, token]);
+
+  const fetchNotifications = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await API.get("/notifications", authHeaders);
+      setNotifications(res.data.notifications || []);
+      setNotifUnread(res.data.unread || 0);
+    } catch (err) {
+      console.error("Failed to fetch notifications:", err.response?.data || err.message);
+    }
+  }, [authHeaders, token]);
+
+  const fetchDocuments = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await API.get("/drivers/my-documents", authHeaders);
+      setDocuments(res.data.documents || []);
+    } catch (err) {
+      console.error("Failed to fetch documents:", err.response?.data || err.message);
     }
   }, [authHeaders, token]);
 
@@ -146,7 +228,10 @@ const DriverDashboard = () => {
   useEffect(() => {
     fetchDriverProfile();
     fetchData();
-  }, [fetchData, fetchDriverProfile]);
+    fetchTruckInfo();
+    fetchNotifications();
+    fetchDocuments();
+  }, [fetchData, fetchDriverProfile, fetchTruckInfo, fetchNotifications, fetchDocuments]);
 
   useEffect(() => {
     if (!token) return;
@@ -157,14 +242,16 @@ const DriverDashboard = () => {
     socket.on("loadUpdated", handleLoadChange);
     socket.on("loadDeleted", handleLoadChange);
     socket.on("podUploaded", handleLoadChange);
+    socket.on("notification", () => fetchNotifications());
 
     return () => {
       socket.off("loadCreated", handleLoadChange);
       socket.off("loadUpdated", handleLoadChange);
       socket.off("loadDeleted", handleLoadChange);
       socket.off("podUploaded", handleLoadChange);
+      socket.off("notification", fetchNotifications);
     };
-  }, [token, fetchData]);
+  }, [token, fetchData, fetchNotifications]);
 
   useEffect(() => {
     setTablePage(1);
@@ -449,13 +536,76 @@ const DriverDashboard = () => {
     }
   };
 
+  const updateDutyStatus = async (status) => {
+    try {
+      await API.patch("/drivers/duty-status", { status }, authHeaders);
+      setDutyStatus(status);
+      setFormMsg({ type: "success", text: `Status set to ${status}` });
+    } catch (err) {
+      setFormMsg({ type: "error", text: "Failed to update duty status" });
+    }
+  };
+
+  const handleStopAction = async (loadId, stopIndex, action) => {
+    try {
+      await API.patch(`/driver-loads/${loadId}/stops/${stopIndex}`, { action }, authHeaders);
+      await fetchData();
+      setFormMsg({ type: "success", text: `Stop ${action === "arrive" ? "arrival" : "departure"} recorded` });
+    } catch (err) {
+      setFormMsg({ type: "error", text: "Failed to update stop" });
+    }
+  };
+
+  const handleDeliveryCheckoff = async (loadId, deliveryIndex) => {
+    try {
+      await API.patch(`/driver-loads/${loadId}/deliveries/${deliveryIndex}`, {}, authHeaders);
+      await fetchData();
+      setFormMsg({ type: "success", text: "Delivery item marked as delivered" });
+    } catch (err) {
+      setFormMsg({ type: "error", text: "Failed to update delivery" });
+    }
+  };
+
+  const handleFuelSubmit = async (e) => {
+    e.preventDefault();
+    if (!fuelForm.liters || !fuelForm.costPerLiter) {
+      setFormMsg({ type: "error", text: "Liters and cost per liter are required" });
+      return;
+    }
+    try {
+      await API.post("/driver-loads/fuel", fuelForm, authHeaders);
+      setFuelForm({ liters: "", costPerLiter: "", vendor: "", notes: "" });
+      setFormMsg({ type: "success", text: "Fuel logged successfully" });
+    } catch (err) {
+      setFormMsg({ type: "error", text: err.response?.data?.message || "Failed to log fuel" });
+    }
+  };
+
+  const markNotifRead = async (id) => {
+    try {
+      await API.patch(`/notifications/${id}/read`, {}, authHeaders);
+      setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: true } : n)));
+      setNotifUnread((prev) => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error("Failed to mark notification read");
+    }
+  };
+
+  const startDeliveryWizard = (loadId) => {
+    setDeliveryWizard({ loadId, step: "stops" });
+    setActivePanel("delivery");
+  };
+
   const navItems = [
-    ["overview", "nav.overview"],
-    ["assigned", "Assigned"],
-    ["active", "status.inTransit"],
-    ["completed", "status.completed"],
-    ["issues", "nav.issues"],
-    ["profile", "nav.profile"],
+    ["overview", "nav.overview", "📊"],
+    ["assigned", "Assigned", "📋"],
+    ["active", "status.inTransit", "🚚"],
+    ["delivery", "Delivery", "📦"],
+    ["completed", "status.completed", "✅"],
+    ["fuel", "Fuel", "⛽"],
+    ["issues", "nav.issues", "⚠️"],
+    ["notifications", "Alerts", "🔔"],
+    ["profile", "nav.profile", "👤"],
   ];
 
   const closeSidebar = () => setSidebarOpen(false);
@@ -466,12 +616,12 @@ const DriverDashboard = () => {
     const pageRows = rows.slice(start, start + PAGE_SIZE);
 
     if (rows.length === 0) {
-      return <div className="driver-empty">{emptyText}</div>;
+      return <div className="admin1-empty">{emptyText}</div>;
     }
 
     return (
       <>
-        <div className="driver-table-wrap">
+        <div className="admin1-table-wrap">
           <table>
             <thead>
               <tr>
@@ -524,7 +674,7 @@ const DriverDashboard = () => {
                   <td>
                     {actionRenderer(load)}
                     {directionsLink(load.pickupLocation, load.deliveryLocation) && (
-                      <button className="driver-btn-sm" onClick={() => window.open(directionsLink(load.pickupLocation, load.deliveryLocation), "_blank")}>
+                      <button className="admin1-btn-sm" onClick={() => window.open(directionsLink(load.pickupLocation, load.deliveryLocation), "_blank")}>
                         Route
                       </button>
                     )}
@@ -548,23 +698,23 @@ const DriverDashboard = () => {
   }
 
   return (
-    <div className="driver-layout">
-      <div className="driver-mobile-bar">
-        <button className="driver-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
+    <div className="admin1-layout">
+      <div className="admin1-mobile-bar">
+        <button className="admin1-menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
           ☰
         </button>
         <img src="/logo_white.png" alt="Logo" />
       </div>
 
-      {sidebarOpen && <div className="driver-overlay" onClick={closeSidebar} />}
+      {sidebarOpen && <div className="admin1-overlay" onClick={closeSidebar} />}
 
-      <aside className={`driver-sidebar ${sidebarOpen ? "open" : ""}`}>
-        <div className="driver-logo">
+      <aside className={`admin1-sidebar ${sidebarOpen ? "open" : ""}`}>
+        <div className="admin1-logo">
           <img src="/logo_white.png" alt="FleetFlow" />
         </div>
 
         <nav>
-          {navItems.map(([id, labelKey]) => (
+          {navItems.map(([id, labelKey, icon]) => (
             <button
               key={id}
               className={activePanel === id ? "active" : ""}
@@ -573,37 +723,38 @@ const DriverDashboard = () => {
                 closeSidebar();
               }}
             >
+              <span className="admin1-nav-icon">{icon}</span>
               {t(labelKey)}
             </button>
           ))}
         </nav>
 
-        <div className="driver-sidebar-footer">
+        <div className="admin1-sidebar-footer">
           <ThemeToggle />
           <LanguageSwitcher />
-          <button className="driver-nav-link" onClick={() => navigate("/mfa-settings")}>
+          <button className="admin1-nav-link" onClick={() => navigate("/mfa-settings")}>
             MFA Settings
           </button>
-          <button className="driver-nav-link" onClick={() => navigate("/change-password")}>
+          <button className="admin1-nav-link" onClick={() => navigate("/change-password")}>
             Change Password
           </button>
-          <button className="driver-nav-link" onClick={() => setChatOpen(true)}>
+          <button className="admin1-nav-link" onClick={() => setChatOpen(true)}>
             Chat
           </button>
-          <button className="driver-logout" onClick={logout}>
+          <button className="admin1-logout" onClick={logout}>
             {t("auth.logout")}
           </button>
           <span>Driver Workspace</span>
         </div>
       </aside>
 
-      <main className="driver-main">
-        <header className="driver-topbar">
+      <main className="admin1-main">
+        <header className="admin1-topbar">
           <div>
-            <span className="driver-eyebrow">{t("driver.profile")}</span>
+            <span className="admin1-eyebrow">{t("driver.profile")}</span>
             <h1>{t("dashboard.welcome")}, {user?.name || "Driver"}</h1>
           </div>
-          <div className="driver-topbar-actions">
+          <div className="admin1-topbar-actions">
             <input
               value={search}
               onChange={(e) => setSearch(sanitizeInput(e.target.value))}
@@ -615,32 +766,32 @@ const DriverDashboard = () => {
           </div>
         </header>
 
-        {error && <div className="driver-alert">{error}</div>}
+        {error && <div className="admin1-alert">{error}</div>}
 
         <Alert message={formMsg?.text} type={formMsg?.type} onClose={() => setFormMsg(null)} />
 
-        <section className="driver-kpis">
-          <div className="driver-kpi-card">
+        <section className="admin1-kpis">
+          <div className="admin1-kpi-card">
             <span>Assigned</span>
             <strong>{metrics.assigned}</strong>
             <small>Ready to start</small>
           </div>
-          <div className="driver-kpi-card">
+          <div className="admin1-kpi-card">
             <span>In Transit</span>
             <strong>{metrics.inTransit}</strong>
             <small>Active trips</small>
           </div>
-          <div className="driver-kpi-card">
+          <div className="admin1-kpi-card">
             <span>Completed</span>
             <strong>{metrics.completed}</strong>
             <small>{metrics.podReady} POD ready</small>
           </div>
-          <div className="driver-kpi-card">
+          <div className="admin1-kpi-card">
             <span>Packages</span>
             <strong>{metrics.totalPackages}</strong>
             <small>Total across loads</small>
           </div>
-          <div className="driver-kpi-card">
+          <div className="admin1-kpi-card">
             <span>Location</span>
             <strong>{locationPermissionDenied ? "Off" : driverLocation ? "Live" : "Wait"}</strong>
             <small>{driverLocation ? "Tracking enabled" : "Awaiting GPS"}</small>
@@ -650,10 +801,10 @@ const DriverDashboard = () => {
         {activePanel === "overview" && (
           <>
             <section className="driver-grid two">
-              <div className="driver-panel driver-trip-card">
-                <div className="driver-panel-header">
+              <div className="admin1-panel driver-trip-card">
+                <div className="admin1-panel-header">
                   <div>
-                    <span className="driver-eyebrow">Current Focus</span>
+                    <span className="admin1-eyebrow">Current Focus</span>
                     <h2>{latestLoad ? "Next Trip" : "No Active Work"}</h2>
                   </div>
                   {latestLoad && <Badge value={latestLoad.status} />}
@@ -720,14 +871,14 @@ const DriverDashboard = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="driver-empty">You do not have any loads yet.</div>
+                  <div className="admin1-empty">You do not have any loads yet.</div>
                 )}
               </div>
 
-              <div className="driver-panel">
-                <div className="driver-panel-header">
+              <div className="admin1-panel">
+                <div className="admin1-panel-header">
                   <div>
-                    <span className="driver-eyebrow">Status</span>
+                    <span className="admin1-eyebrow">Status</span>
                     <h2>Trip Summary</h2>
                   </div>
                 </div>
@@ -748,16 +899,16 @@ const DriverDashboard = () => {
               </div>
             </section>
 
-            <section className="driver-panel">
-              <div className="driver-panel-header">
+            <section className="admin1-panel">
+              <div className="admin1-panel-header">
                 <div>
-                  <span className="driver-eyebrow">Assigned Work</span>
+                  <span className="admin1-eyebrow">Assigned Work</span>
                   <h2>Loads To Start</h2>
                 </div>
                 <button className="btn" onClick={() => setActivePanel("assigned")}>View Assigned</button>
               </div>
               {renderLoadTable(waitingLoads, "No assigned loads.", (load) => (
-                <button className="btn driver-action" onClick={() => { if (window.confirm("Start this trip?")) updateStatus(load._id, "in transit"); }}>
+                <button className="btn admin1-action" onClick={() => { if (window.confirm("Start this trip?")) updateStatus(load._id, "in transit"); }}>
                   Start Trip
                 </button>
               ))}
@@ -766,15 +917,15 @@ const DriverDashboard = () => {
         )}
 
         {activePanel === "assigned" && (
-          <section className="driver-panel">
-            <div className="driver-panel-header">
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
               <div>
-                <span className="driver-eyebrow">Dispatch</span>
+                <span className="admin1-eyebrow">Dispatch</span>
                 <h2>Assigned Loads</h2>
               </div>
             </div>
             {renderLoadTable(waitingLoads, "No assigned loads.", (load) => (
-              <button className="btn driver-action" onClick={() => { if (window.confirm("Start this trip?")) updateStatus(load._id, "in transit"); }}>
+              <button className="btn admin1-action" onClick={() => { if (window.confirm("Start this trip?")) updateStatus(load._id, "in transit"); }}>
                 Start Trip
               </button>
             ))}
@@ -782,22 +933,22 @@ const DriverDashboard = () => {
         )}
 
         {activePanel === "active" && (
-          <section className="driver-panel">
-            <div className="driver-panel-header">
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
               <div>
-                <span className="driver-eyebrow">On Road</span>
+                <span className="admin1-eyebrow">On Road</span>
                 <h2>In Transit</h2>
               </div>
             </div>
             {filterLoads(inTransitLoads).length === 0 ? (
-              <div className="driver-empty">No loads in transit.</div>
+              <div className="admin1-empty">No loads in transit.</div>
             ) : (
               <div className="driver-trip-list">
                 {filterLoads(inTransitLoads).map((load) => (
                   <div className="driver-trip-panel" key={load._id}>
-                    <div className="driver-panel-header">
+                    <div className="admin1-panel-header">
                       <div>
-                        <span className="driver-eyebrow">{load.customer?.name || "Customer"}</span>
+                        <span className="admin1-eyebrow">{load.customer?.name || "Customer"}</span>
                         <h2>{load.pickupLocation} to {load.deliveryLocation}</h2>
                       </div>
                       <Badge value={load.status} />
@@ -871,15 +1022,77 @@ const DriverDashboard = () => {
                     </div>
 
                     <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-                      <button className="driver-btn-sm" onClick={() => handleGeofenceCheck(load._id)} disabled={geofenceLoading && geofenceLoadId === load._id}>
+                      <button className="admin1-btn-sm" onClick={() => handleGeofenceCheck(load._id)} disabled={geofenceLoading && geofenceLoadId === load._id}>
                         {geofenceLoading && geofenceLoadId === load._id ? "Checking..." : "Check Geofence"}
                       </button>
                       {geofenceStatus && geofenceStatus.loadId === load._id && geofenceStatus.geofences.map((gf, i) => (
-                        <span key={i} className={`driver-badge ${gf.withinGeofence ? "success" : "neutral"}`} style={{ fontSize: "0.7rem" }}>
+                        <span key={i} className={`admin1-badge ${gf.withinGeofence ? "success" : "neutral"}`} style={{ fontSize: "0.7rem" }}>
                           {gf.type}: {gf.distanceKm}km {gf.withinGeofence ? "✓" : ""}
                         </span>
                       ))}
                     </div>
+
+                    {/* Stops */}
+                    {load.stops && load.stops.length > 0 && (
+                      <div style={{ marginTop: "1rem" }}>
+                        <h4 style={{ margin: "0 0 8px", fontSize: 14, color: "#475569" }}>Route Stops</h4>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {load.stops.sort((a, b) => a.sequence - b.sequence).map((stop, si) => (
+                            <div key={si} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #f0f1f3", fontSize: 13 }}>
+                              <div>
+                                <strong style={{ textTransform: "capitalize" }}>{stop.type}</strong>
+                                <span style={{ marginLeft: 8, color: "#64748b" }}>{stop.location}</span>
+                                {stop.arrivedAt && <span style={{ marginLeft: 8, color: "#16a34a", fontSize: 11 }}>Arrived {formatDateTime(stop.arrivedAt)}</span>}
+                              </div>
+                              <div style={{ display: "flex", gap: 4 }}>
+                                {!stop.arrivedAt && <button className="admin1-btn-sm" onClick={() => handleStopAction(load._id, si, "arrive")}>Arrive</button>}
+                                {stop.arrivedAt && !stop.departedAt && <button className="admin1-btn-sm" onClick={() => handleStopAction(load._id, si, "depart")}>Depart</button>}
+                                {stop.arrivedAt && <span className="admin1-badge success" style={{ fontSize: 10 }}>✓</span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Deliveries */}
+                    {load.deliveries && load.deliveries.length > 0 && (
+                      <div style={{ marginTop: "1rem" }}>
+                        <h4 style={{ margin: "0 0 8px", fontSize: 14, color: "#475569" }}>Delivery Items</h4>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {load.deliveries.map((item, di) => (
+                            <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #f0f1f3", fontSize: 13 }}>
+                              <span>
+                                {item.deliveryNumber && <strong>{item.deliveryNumber}</strong>}
+                                {item.amount && <span> — {item.amount} units</span>}
+                                {item.weight && <span> — {item.weight} kg</span>}
+                              </span>
+                              {item.status === "delivered" ? (
+                                <span className="admin1-badge success" style={{ fontSize: 10 }}>Delivered</span>
+                              ) : (
+                                <button className="admin1-btn-sm" onClick={() => handleDeliveryCheckoff(load._id, di)}>Mark Delivered</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Route Map */}
+                    {load.routePolyline && (
+                      <div style={{ marginTop: "1rem", height: 200, borderRadius: 8, overflow: "hidden" }}>
+                        <MapContainer center={[load.pickupLat || 0, load.pickupLng || 0]} zoom={10} style={{ height: 200, width: "100%" }} key={load._id} dragging={false} scrollWheelZoom={false} touchZoom={false} doubleClickZoom={false}>
+                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                          {load.routePolyline && <Polyline positions={decodePolyline(load.routePolyline)} color="#6366f1" weight={3} />}
+                          {load.pickupLat && load.pickupLng && <Marker position={[load.pickupLat, load.pickupLng]}><Popup>Pickup</Popup></Marker>}
+                          {load.deliveryLat && load.deliveryLng && <Marker position={[load.deliveryLat, load.deliveryLng]}><Popup>Delivery</Popup></Marker>}
+                        </MapContainer>
+                      </div>
+                    )}
+
+                    <button className="btn" style={{ marginTop: "0.75rem" }} onClick={() => startDeliveryWizard(load._id)}>
+                      Start Delivery Workflow
+                    </button>
                   </div>
                 ))}
               </div>
@@ -887,11 +1100,193 @@ const DriverDashboard = () => {
           </section>
         )}
 
+        {activePanel === "delivery" && (
+          <section className="driver-grid two">
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Guided Workflow</span>
+                  <h2>Delivery Steps</h2>
+                </div>
+              </div>
+              {deliveryWizard.loadId ? (
+                (() => {
+                  const load = loads.find((l) => l._id === deliveryWizard.loadId);
+                  if (!load) return <div className="admin1-empty">Load not found</div>;
+                  const step = deliveryWizard.step;
+                  return (
+                    <div className="driver-issue-form">
+                      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                        {["stops", "deliveries", "photo", "signature", "complete"].map((s) => (
+                          <button key={s} className={`admin1-btn-sm ${step === s ? "admin1-badge info" : ""}`} onClick={() => setDeliveryWizard((p) => ({ ...p, step: s }))} style={step === s ? { color: "#fff", background: "#6366f1", border: "none" } : {}}>
+                            {s.charAt(0).toUpperCase() + s.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+
+                      {step === "stops" && (
+                        <>
+                          <h4 style={{ margin: "0 0 8px" }}>Route Stops</h4>
+                          {load.stops && load.stops.length > 0 ? (
+                            <div style={{ display: "grid", gap: 6 }}>
+                              {load.stops.sort((a, b) => a.sequence - b.sequence).map((stop, si) => (
+                                <div key={si} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #f0f1f3", fontSize: 13 }}>
+                                  <div>
+                                    <strong style={{ textTransform: "capitalize" }}>{stop.type}</strong>
+                                    <span style={{ marginLeft: 8, color: "#64748b" }}>{stop.location}</span>
+                                  </div>
+                                  <div>
+                                    {!stop.arrivedAt && <button className="admin1-btn-sm" onClick={() => handleStopAction(load._id, si, "arrive")}>Arrive</button>}
+                                    {stop.arrivedAt && !stop.departedAt && <button className="admin1-btn-sm" onClick={() => handleStopAction(load._id, si, "depart")}>Depart</button>}
+                                    {stop.arrivedAt && <span className="admin1-badge success" style={{ fontSize: 10 }}>✓ {formatDateTime(stop.arrivedAt)}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="admin1-empty">No stops for this load</div>
+                          )}
+                          <button className="btn" style={{ marginTop: 8 }} onClick={() => setDeliveryWizard((p) => ({ ...p, step: "deliveries" }))}>Next: Deliveries →</button>
+                        </>
+                      )}
+
+                      {step === "deliveries" && (
+                        <>
+                          <h4 style={{ margin: "0 0 8px" }}>Delivery Items</h4>
+                          {load.deliveries && load.deliveries.length > 0 ? (
+                            <div style={{ display: "grid", gap: 6 }}>
+                              {load.deliveries.map((item, di) => (
+                                <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc", border: "1px solid #f0f1f3", fontSize: 13 }}>
+                                  <span>
+                                    {item.deliveryNumber && <strong>{item.deliveryNumber}</strong>}
+                                    {item.amount && <span> — {item.amount} units</span>}
+                                    {item.weight && <span> — {item.weight} kg</span>}
+                                  </span>
+                                  {item.status === "delivered" ? (
+                                    <span className="admin1-badge success" style={{ fontSize: 10 }}>✓</span>
+                                  ) : (
+                                    <button className="admin1-btn-sm" onClick={() => handleDeliveryCheckoff(load._id, di)}>Deliver</button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="admin1-empty">No delivery items for this load</div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "stops" }))}>← Back</button>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "photo" }))}>Next: Photo →</button>
+                          </div>
+                        </>
+                      )}
+
+                      {step === "photo" && (
+                        <>
+                          <h4 style={{ margin: "0 0 8px" }}>Delivery Photo</h4>
+                          <div className="admin1-empty" style={{ padding: 20 }}>
+                            <p style={{ margin: "0 0 12px" }}>Take a photo of the delivered items</p>
+                            <button className="btn" onClick={() => startCamera(load._id)}>📷 Open Camera</button>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "deliveries" }))}>← Back</button>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "signature" }))}>Next: Signature →</button>
+                          </div>
+                        </>
+                      )}
+
+                      {step === "signature" && (
+                        <>
+                          <h4 style={{ margin: "0 0 8px" }}>Customer Signature</h4>
+                          <div className="admin1-empty" style={{ padding: 20 }}>
+                            <p style={{ margin: "0 0 12px" }}>Get customer signature for delivery</p>
+                            {load.signatureUrl ? (
+                              <span className="admin1-badge success">✓ Signed</span>
+                            ) : (
+                              <button className="btn" onClick={() => openSignature(load._id)}>✍️ Open Signature Pad</button>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "photo" }))}>← Back</button>
+                            <button className="btn" onClick={() => setDeliveryWizard((p) => ({ ...p, step: "complete" }))}>Next: Complete →</button>
+                          </div>
+                        </>
+                      )}
+
+                      {step === "complete" && (
+                        <>
+                          <h4 style={{ margin: "0 0 8px" }}>Complete Delivery</h4>
+                          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc" }}>
+                              <span>Stops checked</span>
+                              <strong>{load.stops ? load.stops.filter((s) => s.arrivedAt).length : 0}/{load.stops?.length || 0}</strong>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc" }}>
+                              <span>Items delivered</span>
+                              <strong>{load.deliveries ? load.deliveries.filter((d) => d.status === "delivered").length : 0}/{load.deliveries?.length || 0}</strong>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc" }}>
+                              <span>Photo taken</span>
+                              <strong>{load.capturedPhotoUrl ? "✓" : "✗"}</strong>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderRadius: 6, background: "#f8fafc" }}>
+                              <span>Signature</span>
+                              <strong>{load.signatureUrl ? "✓" : "✗"}</strong>
+                            </div>
+                          </div>
+                          <button className="btn success" style={{ background: "#16a34a" }} onClick={() => { if (window.confirm("Complete this trip?")) { updateMilestone(load, "completedAt", "completed"); setDeliveryWizard({ loadId: null, step: "stops" }); } }}>
+                            ✓ Complete & Submit
+                          </button>
+                          <button className="btn" style={{ marginTop: 8, background: "#64748b" }} onClick={() => setDeliveryWizard((p) => ({ ...p, step: "signature" }))}>← Back</button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="driver-issue-form">
+                  <p style={{ margin: "0 0 12px", color: "#64748b" }}>Select an in-transit load to start the delivery workflow.</p>
+                  <select className="admin1-select" value={deliveryWizard.loadId || ""} onChange={(e) => setDeliveryWizard({ loadId: e.target.value, step: "stops" })}>
+                    <option value="">Select a load...</option>
+                    {inTransitLoads.map((load) => (
+                      <option key={load._id} value={load._id}>{load.customer?.name} — {load.pickupLocation} to {load.deliveryLocation}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Progress</span>
+                  <h2>Completion Status</h2>
+                </div>
+              </div>
+              {deliveryWizard.loadId ? (
+                (() => {
+                  const load = loads.find((l) => l._id === deliveryWizard.loadId);
+                  if (!load) return <div className="admin1-empty">Load not found</div>;
+                  return (
+                    <div className="driver-status-list">
+                      <div><span>Stops</span><strong>{load.stops ? load.stops.filter((s) => s.arrivedAt).length : 0}/{load.stops?.length || 0}</strong></div>
+                      <div><span>Deliveries</span><strong>{load.deliveries ? load.deliveries.filter((d) => d.status === "delivered").length : 0}/{load.deliveries?.length || 0}</strong></div>
+                      <div><span>Photo</span><strong>{load.capturedPhotoUrl ? "✓" : "—"}</strong></div>
+                      <div><span>Signature</span><strong>{load.signatureUrl ? "✓" : "—"}</strong></div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="admin1-empty">Select a load to begin</div>
+              )}
+            </div>
+          </section>
+        )}
+
         {activePanel === "completed" && (
-          <section className="driver-panel">
-            <div className="driver-panel-header">
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
               <div>
-                <span className="driver-eyebrow">Records</span>
+                <span className="admin1-eyebrow">Records</span>
                 <h2>Completed Loads</h2>
               </div>
             </div>
@@ -904,23 +1299,23 @@ const DriverDashboard = () => {
                     View POD
                   </a>
                 ) : (
-                  <div className="driver-action-group">
+                  <div className="admin1-action-group">
                     <label className="btn driver-upload">
                       Upload POD
                       <input type="file" accept=".pdf,image/*" onChange={(e) => handlePODUpload(load._id, e.target.files?.[0])} />
                     </label>
-                    <button className="btn driver-action" onClick={() => handleGeneratePOD(load._id)}>
+                    <button className="btn admin1-action" onClick={() => handleGeneratePOD(load._id)}>
                       Generate POD
                     </button>
-                    <button className="btn driver-action" style={{ background: "#2563eb" }} onClick={() => startCamera(load._id)}>
+                    <button className="btn admin1-action" style={{ background: "#2563eb" }} onClick={() => startCamera(load._id)}>
                       Take Photo
                     </button>
                     {load.signatureUrl ? (
-                      <span className="btn driver-action" style={{ background: "#6b7280", opacity: 0.5, cursor: "not-allowed" }}>
+                      <span className="btn admin1-action" style={{ background: "#6b7280", opacity: 0.5, cursor: "not-allowed" }}>
                         Signed ✓
                       </span>
                     ) : (
-                      <button className="btn driver-action" style={{ background: "#7c3aed" }} onClick={() => openSignature(load._id)}>
+                      <button className="btn admin1-action" style={{ background: "#7c3aed" }} onClick={() => openSignature(load._id)}>
                         Sign
                       </button>
                     )}
@@ -933,10 +1328,10 @@ const DriverDashboard = () => {
 
         {activePanel === "issues" && (
           <section className="driver-grid two">
-            <div className="driver-panel">
-              <div className="driver-panel-header">
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
                 <div>
-                  <span className="driver-eyebrow">Dispatch Alert</span>
+                  <span className="admin1-eyebrow">Dispatch Alert</span>
                   <h2>Report Issue</h2>
                 </div>
               </div>
@@ -963,16 +1358,16 @@ const DriverDashboard = () => {
               </form>
             </div>
 
-            <div className="driver-panel">
-              <div className="driver-panel-header">
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
                 <div>
-                  <span className="driver-eyebrow">Open Items</span>
+                  <span className="admin1-eyebrow">Open Items</span>
                   <h2>Reported Issues</h2>
                 </div>
               </div>
               <div className="driver-issue-list">
                 {loads.filter((load) => load.driverIssue?.description).length === 0 ? (
-                  <div className="driver-empty">No issues reported.</div>
+                  <div className="admin1-empty">No issues reported.</div>
                 ) : (
                   loads
                     .filter((load) => load.driverIssue?.description)
@@ -992,6 +1387,83 @@ const DriverDashboard = () => {
           </section>
         )}
 
+        {activePanel === "fuel" && (
+          <section className="driver-grid two">
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Expenses</span>
+                  <h2>Log Fuel</h2>
+                </div>
+              </div>
+              <form className="driver-issue-form" onSubmit={handleFuelSubmit}>
+                <FormField label="Liters" name="liters" type="number" value={fuelForm.liters} onChange={(e) => setFuelForm({ ...fuelForm, liters: e.target.value })} required />
+                <FormField label="Cost Per Liter" name="costPerLiter" type="number" value={fuelForm.costPerLiter} onChange={(e) => setFuelForm({ ...fuelForm, costPerLiter: e.target.value })} required />
+                <FormField label="Vendor" name="vendor" value={fuelForm.vendor} onChange={(e) => setFuelForm({ ...fuelForm, vendor: e.target.value })} />
+                <FormField label="Notes" name="notes" type="textarea" value={fuelForm.notes} onChange={(e) => setFuelForm({ ...fuelForm, notes: e.target.value })} />
+                <button type="submit" className="btn">Log Fuel</button>
+              </form>
+            </div>
+            <div className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Truck</span>
+                  <h2>Assigned Truck</h2>
+                </div>
+              </div>
+              {truckInfo ? (
+                <div className="driver-status-list">
+                  <div><span>Model</span><strong>{truckInfo.make} {truckInfo.model} ({truckInfo.year || "—"})</strong></div>
+                  <div><span>Reg</span><strong>{truckInfo.registrationNumber}</strong></div>
+                  <div><span>Fuel Type</span><strong style={{ textTransform: "capitalize" }}>{truckInfo.fuelType}</strong></div>
+                  <div><span>Mileage</span><strong>{truckInfo.mileage ? `${truckInfo.mileage.toLocaleString()} km` : "—"}</strong></div>
+                  {truckInfo.nextServiceDate && <div><span>Next Service</span><strong>{new Date(truckInfo.nextServiceDate).toLocaleDateString()}</strong></div>}
+                  {truckInfo.insuranceExpiry && <div><span>Insurance</span><strong>{new Date(truckInfo.insuranceExpiry).toLocaleDateString()}</strong></div>}
+                </div>
+              ) : (
+                <div className="admin1-empty">No truck assigned</div>
+              )}
+              {truckAlerts.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  {truckAlerts.map((a, i) => (
+                    <div key={i} className={`admin1-alert`} style={a.type === "danger" ? { background: "#fef2f2", borderColor: "#fecaca", color: "#dc2626" } : a.type === "warning" ? { background: "#fffbeb", borderColor: "#fde68a", color: "#d97706" } : { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" }}>
+                      {a.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {activePanel === "notifications" && (
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
+              <div>
+                <span className="admin1-eyebrow">Updates</span>
+                <h2>Notifications {notifUnread > 0 && <span className="admin1-badge danger" style={{ marginLeft: 8 }}>{notifUnread} new</span>}</h2>
+              </div>
+              {notifUnread > 0 && <button className="btn" onClick={async () => { try { await API.patch("/notifications/read-all", {}, authHeaders); setNotifications((prev) => prev.map((n) => ({ ...n, read: true }))); setNotifUnread(0); } catch (e) { console.error(e); } }}>Mark All Read</button>}
+            </div>
+            {notifications.length === 0 ? (
+              <div className="admin1-empty">No notifications yet</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {notifications.map((n) => (
+                  <div key={n._id} onClick={() => !n.read && markNotifRead(n._id)} style={{ cursor: !n.read ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderRadius: 8, background: n.read ? "#fafbfc" : "#eef2ff", border: `1px solid ${n.read ? "#f0f1f3" : "#c7d2fe"}`, gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <strong style={{ fontSize: 13, color: "#0f172a", display: "block" }}>{n.title}</strong>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>{n.message}</span>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>{formatDateTime(n.createdAt)}</div>
+                    </div>
+                    {!n.read && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#6366f1", flexShrink: 0 }} />}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Mobile Bottom Navigation */}
         <nav className="driver-bottom-nav">
           {navItems.map(([id, labelKey]) => (
@@ -1004,8 +1476,11 @@ const DriverDashboard = () => {
                 {id === "overview" && "📊"}
                 {id === "assigned" && "📋"}
                 {id === "active" && "🚚"}
+                {id === "delivery" && "📦"}
                 {id === "completed" && "✅"}
+                {id === "fuel" && "⛽"}
                 {id === "issues" && "⚠️"}
+                {id === "notifications" && "🔔"}
                 {id === "profile" && "👤"}
               </span>
               {t(labelKey)}
@@ -1058,57 +1533,131 @@ const DriverDashboard = () => {
         )}
 
         {activePanel === "profile" && (
-          <section className="driver-grid two">
-            <div className="driver-panel">
-              <div className="driver-panel-header">
-                <div>
-                  <span className="driver-eyebrow">Account</span>
-                  <h2>Driver Profile</h2>
+          <div style={{ display: "grid", gap: 20 }}>
+            <section className="driver-grid two">
+              <div className="admin1-panel">
+                <div className="admin1-panel-header">
+                  <div>
+                    <span className="admin1-eyebrow">Account</span>
+                    <h2>Driver Profile</h2>
+                  </div>
                 </div>
-              </div>
-              <form className="driver-issue-form" onSubmit={async (e) => {
-                e.preventDefault();
-                const { errors: profErrors, isValid: profIsValid } = validateForm({
-                  name: { value: profileForm.name, rules: [required], label: "Name" },
-                });
-                setProfileErrors(profErrors);
-                setProfileTouched({ name: true });
-                if (!profIsValid) return;
-                try {
-                  await API.patch("/drivers/profile", profileForm, authHeaders);
-                  setProfileErrors({});
-                  setProfileTouched({});
-                  setFormMsg({ type: "success", text: "Profile updated successfully" });
-                } catch (err) {
-                  setFormMsg({ type: "error", text: err.response?.data?.message || "Failed to update profile" });
-                }
-              }}>
-                <FormField label="Name" name="name" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, name: true })} error={profileErrors.name} touched={profileTouched.name} required />
-                <FormField label="Email" name="email" value={user?.email || ""} disabled />
-                <FormField label="Phone" name="phone" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, phone: true })} error={profileErrors.phone} touched={profileTouched.phone} helpKey="phone" />
-                <FormField label="License Number" name="licenseNumber" value={profileForm.licenseNumber} onChange={(e) => setProfileForm({ ...profileForm, licenseNumber: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, licenseNumber: true })} error={profileErrors.licenseNumber} touched={profileTouched.licenseNumber} helpKey="license" />
-                <button type="submit" className="btn">Save Changes</button>
-              </form>
-            </div>
+                <form className="driver-issue-form" onSubmit={async (e) => {
+                  e.preventDefault();
+                  const { errors: profErrors, isValid: profIsValid } = validateForm({
+                    name: { value: profileForm.name, rules: [required], label: "Name" },
+                  });
+                  setProfileErrors(profErrors);
+                  setProfileTouched({ name: true });
+                  if (!profIsValid) return;
+                  try {
+                    await API.patch("/drivers/profile", profileForm, authHeaders);
+                    setProfileErrors({});
+                    setProfileTouched({});
+                    setFormMsg({ type: "success", text: "Profile updated successfully" });
+                  } catch (err) {
+                    setFormMsg({ type: "error", text: err.response?.data?.message || "Failed to update profile" });
+                  }
+                }}>
+                  <FormField label="Name" name="name" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, name: true })} error={profileErrors.name} touched={profileTouched.name} required />
+                  <FormField label="Email" name="email" value={user?.email || ""} disabled />
+                  <FormField label="Phone" name="phone" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, phone: true })} error={profileErrors.phone} touched={profileTouched.phone} helpKey="phone" />
+                  <FormField label="License Number" name="licenseNumber" value={profileForm.licenseNumber} onChange={(e) => setProfileForm({ ...profileForm, licenseNumber: e.target.value })} onBlur={() => setProfileTouched({ ...profileTouched, licenseNumber: true })} error={profileErrors.licenseNumber} touched={profileTouched.licenseNumber} helpKey="license" />
+                  <button type="submit" className="btn">Save Changes</button>
+                </form>
 
-            <div className="driver-panel">
-              <div className="driver-panel-header">
-                <div>
-                  <span className="driver-eyebrow">GPS</span>
-                  <h2>Location Tracking</h2>
+                {/* Duty Status */}
+                <div style={{ marginTop: 20 }}>
+                  <span className="admin1-eyebrow">Duty Status</span>
+                  <h3 style={{ margin: "4px 0 10px", fontSize: 15, fontWeight: 600 }}>Current: <span style={{ textTransform: "capitalize" }}>{dutyStatus}</span></h3>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {["available", "on-duty", "inactive"].map((s) => (
+                      <button key={s} className={`admin1-btn-sm ${dutyStatus === s ? "admin1-badge info" : ""}`} onClick={() => updateDutyStatus(s)} style={dutyStatus === s ? { background: "#6366f1", color: "#fff", border: "none" } : {}}>
+                        {s === "on-duty" ? "On Duty" : s.charAt(0).toUpperCase() + s.slice(1)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <Badge value={locationPermissionDenied ? "canceled" : driverLocation ? "completed" : "waiting"} />
               </div>
-              <div className="driver-location-card">
-                <span>{locationPermissionDenied ? "Permission denied or unavailable" : "Current device position"}</span>
-                <strong>
-                  {driverLocation
-                    ? `${driverLocation.lat.toFixed(5)}, ${driverLocation.lng.toFixed(5)}`
-                    : "Waiting for GPS"}
-                </strong>
+
+              <div className="admin1-panel">
+                <div className="admin1-panel-header">
+                  <div>
+                    <span className="admin1-eyebrow">GPS</span>
+                    <h2>Location Tracking</h2>
+                  </div>
+                  <Badge value={locationPermissionDenied ? "canceled" : driverLocation ? "completed" : "waiting"} />
+                </div>
+                <div className="driver-location-card">
+                  <span>{locationPermissionDenied ? "Permission denied or unavailable" : "Current device position"}</span>
+                  <strong>
+                    {driverLocation
+                      ? `${driverLocation.lat.toFixed(5)}, ${driverLocation.lng.toFixed(5)}`
+                      : "Waiting for GPS"}
+                  </strong>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+
+            {/* Truck Info */}
+            <section className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Vehicle</span>
+                  <h2>Assigned Truck</h2>
+                </div>
+              </div>
+              {truckInfo ? (
+                <div className="driver-status-list">
+                  <div><span>Model</span><strong>{truckInfo.make} {truckInfo.model} ({truckInfo.year || "—"})</strong></div>
+                  <div><span>Registration</span><strong>{truckInfo.registrationNumber}</strong></div>
+                  <div><span>Fuel Type</span><strong style={{ textTransform: "capitalize" }}>{truckInfo.fuelType}</strong></div>
+                  <div><span>Capacity</span><strong>{truckInfo.capacity ? `${truckInfo.capacity} kg` : "—"}</strong></div>
+                  <div><span>Mileage</span><strong>{truckInfo.mileage ? `${truckInfo.mileage.toLocaleString()} km` : "—"}</strong></div>
+                  <div><span>Insurance</span><strong>{truckInfo.insuranceExpiry ? new Date(truckInfo.insuranceExpiry).toLocaleDateString() : "—"}</strong></div>
+                  <div><span>Next Service</span><strong>{truckInfo.nextServiceDate ? new Date(truckInfo.nextServiceDate).toLocaleDateString() : "—"}</strong></div>
+                </div>
+              ) : (
+                <div className="admin1-empty">No truck assigned</div>
+              )}
+              {truckAlerts.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  {truckAlerts.map((a, i) => (
+                    <div key={i} className="admin1-alert" style={a.type === "danger" ? { background: "#fef2f2", borderColor: "#fecaca", color: "#dc2626" } : a.type === "warning" ? { background: "#fffbeb", borderColor: "#fde68a", color: "#d97706" } : { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" }}>
+                      {a.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Documents */}
+            <section className="admin1-panel">
+              <div className="admin1-panel-header">
+                <div>
+                  <span className="admin1-eyebrow">Records</span>
+                  <h2>My Documents</h2>
+                </div>
+              </div>
+              {documents.length === 0 ? (
+                <div className="admin1-empty">No documents found</div>
+              ) : (
+                <div className="driver-issue-list">
+                  {documents.map((doc) => (
+                    <div key={doc._id} className="driver-issue-card">
+                      <div>
+                        <strong>{doc.title}</strong>
+                        <span className={`admin1-badge ${doc.status === "active" ? "success" : doc.status === "expiring" ? "warning" : "neutral"}`}>{doc.status}</span>
+                      </div>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>Type: {doc.type}</span>
+                      {doc.expiryDate && <span style={{ fontSize: 12, color: "#64748b" }}>Expires: {new Date(doc.expiryDate).toLocaleDateString()}</span>}
+                      {doc.fileUrl && <a className="btn driver-link-button" href={doc.fileUrl} target="_blank" rel="noopener noreferrer" style={{ justifySelf: "start", fontSize: 12, padding: "4px 10px" }}>View</a>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
         )}
       </main>
 

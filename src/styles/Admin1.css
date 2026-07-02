@@ -1328,6 +1328,14 @@
   color: #f1f5f9;
 }
 
+[data-theme="dark"] .admin1-table-wrap {
+  border-color: #1e293b;
+}
+
+[data-theme="dark"] .admin1-table-wrap table {
+  background: #1e293b;
+}
+
 [data-theme="dark"] .admin1-table-wrap table th {
   background: #0f172a;
   color: #94a3b8;
@@ -1335,8 +1343,9 @@
 }
 
 [data-theme="dark"] .admin1-table-wrap table td {
+  background: #1e293b;
   color: #e2e8f0;
-  border-bottom-color: #1e293b;
+  border-bottom-color: #334155;
 }
 
 [data-theme="dark"] .admin1-table-wrap table tr:hover td {
@@ -1515,6 +1524,12 @@
 [data-theme="dark"] .admin1-badge {
   color: #fff;
 }
+
+[data-theme="dark"] .admin1-badge.success { background: #064e3b; color: #6ee7b7; }
+[data-theme="dark"] .admin1-badge.warning { background: #451a03; color: #fcd34d; }
+[data-theme="dark"] .admin1-badge.info { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .admin1-badge.danger { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .admin1-badge.neutral { background: #1e293b; color: #94a3b8; }
 
 [data-theme="dark"] .admin1-sidebar {
   background: #020617;

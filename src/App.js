@@ -18,7 +18,6 @@ import { NotificationProvider, useNotifications } from "./contexts/NotificationC
 import { AnnounceProvider } from "./components/ScreenReaderAnnouncements";
 import Toast from "./components/Toast";
 
-const SuperAdmin = lazy(() => import("./pages/SuperAdmin"));
 const Admin1 = lazy(() => import("./pages/Admin1"));
 const Admin2 = lazy(() => import("./pages/Admin2"));
 const Driver = lazy(() => import("./pages/Driver"));
@@ -45,16 +44,6 @@ function AppRoutes() {
       <Route path="/oauth-callback" element={<OAuthCallback />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/terms" element={<Terms />} />
-
-      {/* Super Admin */}
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute allowedRoles={["superadmin"]}>
-            <SuperAdmin />
-          </ProtectedRoute>
-        }
-      />
 
       {/* Admin1 */}
       <Route

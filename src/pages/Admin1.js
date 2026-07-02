@@ -188,8 +188,7 @@ const Admin1 = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formMsg, setFormMsg] = useState(null);
-  const [resolveLoad, setResolveLoad] = useState(null);
-  const [resolutionNote, setResolutionNote] = useState("");
+
   const [loadPage, setLoadPage] = useState(1);
   const [auditPage, setAuditPage] = useState(1);
   const [auditTotal, setAuditTotal] = useState(0);
@@ -255,6 +254,8 @@ const Admin1 = () => {
   const [fuelRecords, setFuelRecords] = useState([]);
   const [fuelStats, setFuelStats] = useState(null);
   const [fuelLoading, setFuelLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [createUserForm, setCreateUserForm] = useState({ name: "", email: "", password: "", role: "driver" });
   const [fuelForm, setFuelForm] = useState({
     truck: "", date: "", liters: "", costPerLiter: "", mileage: "", vendor: "", fuelType: "diesel", notes: "",
   });
@@ -269,7 +270,6 @@ const Admin1 = () => {
   const [chatOpen, setChatOpen] = useState(false);
 
   const editModalRef = useFocusTrap(modalOpen);
-  const resolveModalRef = useFocusTrap(Boolean(resolveLoad));
   const maintCreateRef = useFocusTrap(showCreateMaintenance);
   const maintCompleteRef = useFocusTrap(Boolean(showCompleteMaintenance));
   const invoiceCreateRef = useFocusTrap(showCreateInvoice);
@@ -316,6 +316,17 @@ const Admin1 = () => {
       setFuelStats(res.data);
     } catch (err) {
       // silent
+    }
+  }, [token, authHeaders]);
+
+  const fetchUsers = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await API.get("/users", authHeaders);
+      setUsers(res.data);
+    } catch (err) {
+      console.error("Fetch users error:", err.response?.data || err.message);
+      setFormMsg({ type: "error", text: "Failed to load users: " + (err.response?.data?.message || err.message) });
     }
   }, [token, authHeaders]);
 
@@ -707,7 +718,6 @@ const Admin1 = () => {
       availableDrivers: countDrivers("available"),
       availableTrucks: countTrucks("available"),
       maintenanceTrucks: countTrucks("under maintenance"),
-      openIssues: loads.filter((load) => load.driverIssue?.status === "open").length,
     };
   }, [drivers, loads, trucks]);
 
@@ -765,6 +775,10 @@ const Admin1 = () => {
   useEffect(() => {
     if (activePanel === "auditlog") fetchAuditLogs(1);
   }, [activePanel, fetchAuditLogs]);
+
+  useEffect(() => {
+    if (activePanel === "users") fetchUsers();
+  }, [activePanel, fetchUsers]);
 
   const filteredLoads = useMemo(() => {
     const term = search.toLowerCase();
@@ -913,25 +927,6 @@ const Admin1 = () => {
 
   const closeSidebar = () => setSidebarOpen(false);
 
-  const issueLoads = useMemo(
-    () => loads.filter((load) => load.driverIssue?.status === "open"),
-    [loads]
-  );
-
-  const handleResolveIssue = async () => {
-    if (!resolveLoad) return;
-
-    try {
-      await API.patch(`/loads/${resolveLoad._id}/resolve-issue`, { note: resolutionNote }, authHeaders);
-      setResolveLoad(null);
-      setResolutionNote("");
-      await fetchData();
-    } catch (err) {
-      console.error("Resolve issue error:", err.response?.data || err.message);
-      setFormMsg({ type: "error", text: "Failed to resolve issue" });
-    }
-  };
-
   const navItems = [
     ["overview", "nav.overview", "○"],
     ["loads", "nav.loads", "⊞"],
@@ -942,11 +937,11 @@ const Admin1 = () => {
     ["maintenance", "nav.maintenance", "⚙"],
     ["fuel", "nav.fuel", "⊡"],
     ["documents", "nav.documents", "☰"],
-    ["issues", "nav.issues", "△"],
     ["dispatch", "nav.dispatch", "≡"],
     ["map", "nav.map", "⌗"],
     ["reports", "nav.reports", "⊟"],
     ["auditlog", "Activity Log", "◉"],
+    ["users", "Users", "👤"],
   ];
 
   const openEditModal = (entityType, data) => {
@@ -1490,11 +1485,6 @@ const Admin1 = () => {
             <strong>{metrics.availableTrucks}</strong>
             <small>{metrics.maintenanceTrucks} {t("status.underMaintenance")}</small>
           </div>
-          <div className="admin1-kpi-card">
-            <span>{t("dashboard.openIssues")}</span>
-            <strong>{metrics.openIssues}</strong>
-            <small>{t("dashboard.reportedByDrivers")}</small>
-          </div>
         </section>
 
         {activePanel === "overview" && (
@@ -1982,55 +1972,6 @@ const Admin1 = () => {
                 </tbody>
               </table>
             </div>
-          </section>
-        )}
-
-        {activePanel === "issues" && (
-          <section className="admin1-panel">
-            <div className="admin1-panel-header">
-              <div>
-                <span className="admin1-eyebrow">Exceptions</span>
-                <h2>Driver-Reported Issues ({issueLoads.length})</h2>
-              </div>
-            </div>
-            {issueLoads.length === 0 ? (
-              <div className="admin1-empty">No open issues reported by drivers.</div>
-            ) : (
-              <div className="admin1-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Ticket</th>
-                      <th>Customer</th>
-                      <th>Driver</th>
-                      <th>Type</th>
-                      <th>Description</th>
-                      <th>Truck</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {issueLoads.map((load) => (
-                      <tr key={load._id}>
-                        <td>{load.ticketNumber || "-"}</td>
-                        <td>{load.customer?.name || "-"}</td>
-                        <td>{load.driver?.name || load.driver?.email || "-"}</td>
-                        <td><Badge value={load.driverIssue.type} /></td>
-                        <td className="admin1-text-truncate">
-                          {load.driverIssue.description}
-                        </td>
-                        <td>{load.truck?.registrationNumber || "-"}</td>
-                        <td>
-                          <button className="admin1-action" onClick={() => { setResolveLoad(load); setResolutionNote(""); }}>
-                            Review
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </section>
         )}
 
@@ -3453,6 +3394,110 @@ const Admin1 = () => {
             )}
           </section>
         )}
+
+        {activePanel === "users" && (
+          <section className="admin1-panel">
+            <div className="admin1-panel-header">
+              <div>
+                <span className="admin1-eyebrow">Administration</span>
+                <h2>Users ({users.length})</h2>
+              </div>
+            </div>
+
+            {users.length === 0 ? (
+              <div className="admin1-empty">No users found.</div>
+            ) : (
+              <div className="admin1-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style={{ background: "#f8fafc" }}>
+                      <td><input placeholder="Full Name" value={createUserForm.name} onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value })} style={{ width: 140 }} /></td>
+                      <td><input placeholder="Email" type="email" value={createUserForm.email} onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })} style={{ width: 180 }} /></td>
+                      <td>
+                        <select value={createUserForm.role} onChange={(e) => setCreateUserForm({ ...createUserForm, role: e.target.value })}>
+                          <option value="driver">Driver</option>
+                          <option value="admin2">Admin2</option>
+                          <option value="admin1">Admin1</option>
+                        </select>
+                      </td>
+                      <td>—</td>
+                      <td>
+                        <button className="admin1-btn-sm" onClick={async () => {
+                          if (!createUserForm.name || !createUserForm.email || !createUserForm.password) {
+                            alert("Name, email, and password are required");
+                            return;
+                          }
+                          try {
+                            await API.post("/users", createUserForm, authHeaders);
+                            setCreateUserForm({ name: "", email: "", password: "", role: "driver" });
+                            fetchUsers();
+                          } catch (err) {
+                            alert(err.response?.data?.message || "Failed to create user");
+                          }
+                        }}>+ Add</button>
+                      </td>
+                    </tr>
+                    {users.map((u) => (
+                      <tr key={u._id}>
+                        <td>{u.name}</td>
+                        <td>{u.email}</td>
+                        <td><Badge value={u.role} /></td>
+                        <td><Badge value={u.isActive !== false ? "active" : "inactive"} /></td>
+                        <td>
+                          <select
+                            value={u.role}
+                            style={{ marginRight: 8 }}
+                            onChange={async (e) => {
+                              try {
+                                await API.put(`/users/${u._id}`, { role: e.target.value }, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert(err.response?.data?.message || "Failed to update role");
+                              }
+                            }}
+                          >
+                            <option value="driver">Driver</option>
+                            <option value="admin2">Admin2</option>
+                            <option value="admin1">Admin1</option>
+                          </select>
+                          {u.isActive !== false ? (
+                            <button className="admin1-btn-sm admin1-btn-danger" onClick={async () => {
+                              if (!window.confirm(`Deactivate ${u.name}?`)) return;
+                              try {
+                                await API.delete(`/users/${u._id}`, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert("Failed to deactivate user");
+                              }
+                            }}>Deactivate</button>
+                          ) : (
+                            <button className="admin1-btn-sm" onClick={async () => {
+                              try {
+                                await API.put(`/users/${u._id}`, { isActive: true }, authHeaders);
+                                fetchUsers();
+                              } catch (err) {
+                                alert("Failed to activate user");
+                              }
+                            }}>Activate</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
       </main>
 
       {modalOpen && (
@@ -3568,57 +3613,6 @@ const Admin1 = () => {
       )}
 
       <ConfirmDialog />
-      {resolveLoad && (
-        <div className="admin1-modal-overlay" ref={resolveModalRef} onClick={() => setResolveLoad(null)} role="dialog" aria-modal="true" aria-label="Resolve issue modal">
-          <div className="admin1-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="admin1-modal-header">
-              <div>
-                <span className="admin1-eyebrow">Resolve Issue</span>
-                <h2>{resolveLoad.ticketNumber || "Issue Review"}</h2>
-              </div>
-              <button onClick={() => setResolveLoad(null)} data-close-modal aria-label="Close modal">×</button>
-            </div>
-
-            <div className="admin1-resolve-grid">
-              <div>
-                <span>Customer</span>
-                <strong>{resolveLoad.customer?.name || "-"}</strong>
-              </div>
-              <div>
-                <span>Driver</span>
-                <strong>{resolveLoad.driver?.name || resolveLoad.driver?.email || "-"}</strong>
-              </div>
-              <div>
-                <span>Truck</span>
-                <strong>{resolveLoad.truck?.registrationNumber || "-"}</strong>
-              </div>
-              <div>
-                <span>Reported</span>
-                <strong>{formatDateTime(resolveLoad.driverIssue.reportedAt)}</strong>
-              </div>
-            </div>
-
-            <div className="admin1-issue-box">
-              <strong>{resolveLoad.driverIssue.type || "Issue"}</strong>
-              <p>{resolveLoad.driverIssue.description}</p>
-            </div>
-
-            <label className="admin1-resolve-note">
-              <span>Resolution Note</span>
-              <textarea
-                value={resolutionNote}
-                onChange={(e) => setResolutionNote(e.target.value)}
-                placeholder="Describe how this issue was resolved..."
-              />
-            </label>
-
-            <div className="admin1-modal-actions">
-              <button className="secondary" onClick={() => setResolveLoad(null)}>Cancel</button>
-              <button onClick={handleResolveIssue}>Resolve Issue</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {mapPickerOpen && (
         <div className="admin1-modal-overlay" onClick={() => setMapPickerOpen(false)} role="dialog" aria-modal="true" aria-label="Pick location on map">
