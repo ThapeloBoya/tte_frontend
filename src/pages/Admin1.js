@@ -30,7 +30,7 @@ import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import ChatDrawer from "../components/ChatDrawer";
-import { TableSkeleton, CardSkeleton } from "../components/LoadingSkeleton";
+import { TableSkeleton} from "../components/LoadingSkeleton";
 
 const BACKEND_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -149,7 +149,6 @@ const Badge = ({ value }) => {
   return <span className={`admin1-badge ${tone}`}>{value || "unknown"}</span>;
 };
 
-const formatDateTime = (value) => (value ? new Date(value).toLocaleString() : "-");
 const PAGE_SIZE = 20;
 const AUDIT_PAGE_SIZE = 25;
 
